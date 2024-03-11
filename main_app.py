@@ -31,12 +31,15 @@ if not laps.empty:
     # Filtra los datos para el piloto seleccionado
     driver_laps = laps.loc[laps['Driver'] == selected_driver]
     
+    # Convierte LapTime a segundos
+    driver_laps['LapTimeSeconds'] = driver_laps['LapTime'].dt.total_seconds()
+    
     # Genera el gráfico para el piloto seleccionado
     fig, ax = plt.subplots()
-    ax.plot(driver_laps['LapNumber'], driver_laps['LapTime'], marker='o')
+    ax.plot(driver_laps['LapNumber'], driver_laps['LapTimeSeconds'], marker='o')
     ax.set_title(f'Tiempos de vuelta de {selected_driver}')
     ax.set_xlabel('Número de vuelta')
-    ax.set_ylabel('Tiempo de vuelta')
+    ax.set_ylabel('Tiempo de vuelta (segundos)')
     st.pyplot(fig)
 else:
     st.error('No se encontraron datos para esta sesión.')
