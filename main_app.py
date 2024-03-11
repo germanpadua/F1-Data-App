@@ -4,47 +4,39 @@ from fastf1 import plotting
 from matplotlib import pyplot as plt
 import pandas as pd
 
-import os
+# Configuración inicial, como habilitar el caché si es necesario
+fastf1.Cache.enable_cache('cache')
 
-# Especifica el nombre del directorio de caché
-cache_dir = 'cache'
+# Función para cargar los datos (posiblemente usando st.cache)
+@st.cache_data
+def cargar_datos(year, gp, session_type):
+    session = fastf1.get_session(year, gp, session_type)
+    session.load()
+    laps = session.laps
+    return laps
 
-# Crea el directorio de caché si no existe
-os.makedirs(cache_dir, exist_ok=True)
-
-# Habilita el caché de FastF1
-fastf1.Cache.enable_cache(cache_dir)
-
-# Título de la aplicación
 st.title('Análisis de Tiempos de Vuelta en Fórmula 1')
 
-# Selección de año, evento y sesión
+# Selección de parámetros por el usuario
 year = st.sidebar.selectbox('Selecciona el año', [2020, 2021, 2022, 2023])
 gp = st.sidebar.text_input('Escribe el Gran Premio', 'Spain')
 session_type = st.sidebar.selectbox('Selecciona el tipo de sesión', ['FP1', 'FP2', 'FP3', 'Q', 'R'])
 
-# Botón para cargar los datos
-if st.sidebar.button('Cargar Datos'):
-    with st.spinner('Cargando datos...'):
-        session = fastf1.get_session(year, gp, session_type)
-        session.load()
-        laps = session.laps
-        st.success('¡Datos cargados con éxito!')
+laps = cargar_datos(year, gp, session_type)
 
-        # Mostrar una tabla con los tiempos de vuelta
-        if not laps.empty:
-            driver_ids = laps['DriverNumber'].unique()
-            selected_driver = st.selectbox('Selecciona un piloto', driver_ids)
-            driver_laps = laps.pick_driver(selected_driver)
-            st.write(driver_laps[['LapNumber', 'LapTime', 'Position']].reset_index(drop=True))
-        
-            # Graficar los tiempos de vuelta del piloto seleccionado
-            plt.figure(figsize=(10, 6))
-            plt.plot(driver_laps['LapNumber'], driver_laps['LapTime'].dt.total_seconds(), marker='.')
-            plt.title(f'Tiempos de Vuelta para el piloto {selected_driver}')
-            plt.xlabel('Número de Vuelta')
-            plt.ylabel('Tiempo de Vuelta (segundos)')
-            st.pyplot(plt)
-        else:
-            st.error('No se encontraron datos para esta sesión.')
-
+if not laps.empty:
+    drivers = laps['Driver'].unique()
+    selected_driver = st.selectbox('Selecciona un piloto', drivers)
+    
+    # Filtra los datos para el piloto seleccionado
+    driver_laps = laps.loc[laps['Driver'] == selected_driver]
+    
+    # Genera el gráfico para el piloto seleccionado
+    fig, ax = plt.subplots()
+    ax.plot(driver_laps['LapNumber'], driver_laps['LapTime'], marker='o')
+    ax.set_title(f'Tiempos de vuelta de {selected_driver}')
+    ax.set_xlabel('Número de vuelta')
+    ax.set_ylabel('Tiempo de vuelta')
+    st.pyplot(fig)
+else:
+    st.error('No se encontraron datos para esta sesión.')
