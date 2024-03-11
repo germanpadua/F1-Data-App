@@ -10,8 +10,7 @@ import os
 cache_dir = 'cache'
 
 # Crea el directorio de caché si no existe
-if not os.path.exists(cache_dir):
-    os.makedirs(cache_dir)
+os.makedirs(cache_dir, exist_ok=True)
 
 # Habilita el caché de FastF1
 fastf1.Cache.enable_cache(cache_dir)
