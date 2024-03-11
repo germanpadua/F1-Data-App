@@ -29,10 +29,9 @@ if not laps.empty:
     selected_driver = st.selectbox('Selecciona un piloto', drivers)
     
     # Filtra los datos para el piloto seleccionado
-    driver_laps = laps.loc[laps['Driver'] == selected_driver]
-    
-    # Convierte LapTime a segundos
+    driver_laps = laps.loc[laps['Driver'] == selected_driver].copy()
     driver_laps['LapTimeSeconds'] = driver_laps['LapTime'].dt.total_seconds()
+
     
     # Genera el gráfico para el piloto seleccionado
     fig, ax = plt.subplots()
