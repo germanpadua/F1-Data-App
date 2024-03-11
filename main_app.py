@@ -4,41 +4,44 @@ from fastf1 import plotting
 from matplotlib import pyplot as plt
 import pandas as pd
 
-# Configuración inicial, como habilitar el caché si es necesario
-fastf1.Cache.enable_cache('cache')
+# Configuración inicial de FastF1 y matplotlib para la aplicación
+fastf1.Cache.enable_cache('cache')  # Habilita la caché de FastF1
+plotting.setup_mpl(misc_mpl_mods=False)  # Configuración de matplotlib para FastF1
 
-# Función para cargar los datos (posiblemente usando st.cache)
+# Función para cargar los datos de la sesión
 @st.cache_data
-def cargar_datos(year, gp, session_type):
+def cargar_datos_de_sesion(year, gp, session_type):
     session = fastf1.get_session(year, gp, session_type)
-    session.load()
-    laps = session.laps
-    return laps
+    session.load(telemetry=False, weather=False)
+    return session
 
-st.title('Análisis de Tiempos de Vuelta en Fórmula 1')
+st.title('Análisis de Posiciones en Carrera en Fórmula 1')
 
 # Selección de parámetros por el usuario
 year = st.sidebar.selectbox('Selecciona el año', [2020, 2021, 2022, 2023])
 gp = st.sidebar.text_input('Escribe el Gran Premio', 'Spain')
-session_type = st.sidebar.selectbox('Selecciona el tipo de sesión', ['FP1', 'FP2', 'FP3', 'Q', 'R'])
+session_type = 'R'  # Para análisis de carrera
 
-laps = cargar_datos(year, gp, session_type)
+session = cargar_datos_de_sesion(year, gp, session_type)
 
-if not laps.empty:
-    drivers = laps['Driver'].unique()
-    selected_driver = st.selectbox('Selecciona un piloto', drivers)
-    
-    # Filtra los datos para el piloto seleccionado
-    driver_laps = laps.loc[laps['Driver'] == selected_driver].copy()
-    driver_laps['LapTimeSeconds'] = driver_laps['LapTime'].dt.total_seconds()
+# Crear el gráfico de posiciones de los pilotos
+fig, ax = plt.subplots(figsize=(8.0, 4.9))
 
-    
-    # Genera el gráfico para el piloto seleccionado
-    fig, ax = plt.subplots()
-    ax.plot(driver_laps['LapNumber'], driver_laps['LapTimeSeconds'], marker='o')
-    ax.set_title(f'Tiempos de vuelta de {selected_driver}')
-    ax.set_xlabel('Número de vuelta')
-    ax.set_ylabel('Tiempo de vuelta (segundos)')
-    st.pyplot(fig)
-else:
-    st.error('No se encontraron datos para esta sesión.')
+for drv in session.drivers:
+    drv_laps = session.laps.pick_driver(drv)
+    abb = drv_laps['Driver'].iloc[0]
+    color = plotting.driver_color(abb)
+    ax.plot(drv_laps['LapNumber'], drv_laps['Position'], label=abb, color=color)
+
+# Finalizar el gráfico
+ax.set_ylim([20.5, 0.5])
+ax.set_yticks([1, 5, 10, 15, 20])
+ax.set_xlabel('Vuelta')
+ax.set_ylabel('Posición')
+
+# Añadir la leyenda fuera del área del gráfico
+ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+plt.tight_layout()
+
+# Mostrar el gráfico en Streamlit
+st.pyplot(fig)
