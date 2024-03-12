@@ -7,6 +7,8 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+from fastf1 import get_event_schedule
+
 
 
 # Directorio de caché
@@ -41,7 +43,14 @@ if opcion_grafico == 'Evolución de las posiciones':
     # Código para mostrar el gráfico de evolución de las posiciones
     # Selección de parámetros por el usuario
     year = st.sidebar.selectbox('Selecciona el año', [2020, 2021, 2022, 2023, 2024])
-    gp = st.sidebar.text_input('Escribe el Gran Premio', 'Spain')
+    # Obtén el calendario de eventos para el año seleccionado
+    calendar = get_event_schedule(year)
+
+    # Extrae los nombres de los Grandes Premios del calendario
+    gps_disponibles = [event['EventName'] for event in calendar]
+
+    # Crea un selectbox para que el usuario seleccione el GP
+    gp_selected = st.sidebar.selectbox('Selecciona el Gran Premio', gps_disponibles)
     session_type = 'R'  # Para análisis de carrera
 
     session = cargar_datos_de_sesion(year, gp, session_type)
@@ -82,7 +91,14 @@ if opcion_grafico == 'Evolución de las posiciones':
 elif opcion_grafico == 'Tiempos de vuelta':
     # Selección de parámetros por el usuario
     year = st.sidebar.selectbox('Selecciona el año', [2020, 2021, 2022, 2023, 2024])
-    gp = st.sidebar.text_input('Escribe el Gran Premio', 'Spain')
+    # Obtén el calendario de eventos para el año seleccionado
+    calendar = get_event_schedule(year)
+
+    # Extrae los nombres de los Grandes Premios del calendario
+    gps_disponibles = [event['EventName'] for event in calendar]
+
+    # Crea un selectbox para que el usuario seleccione el GP
+    gp_selected = st.sidebar.selectbox('Selecciona el Gran Premio', gps_disponibles)
     session_type = st.sidebar.selectbox('Selecciona el tipo de sesión', ['FP1', 'FP2', 'FP3', 'Q', 'R'])
 
     session = cargar_datos_de_sesion(year, gp, session_type)
