@@ -4,6 +4,10 @@ import fastf1
 from fastf1 import plotting
 from matplotlib import pyplot as plt
 import pandas as pd
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+
 
 # Directorio de caché
 cache_dir = 'cache'
@@ -23,39 +27,114 @@ def cargar_datos_de_sesion(year, gp, session_type):
     session.load(telemetry=False, weather=False)
     return session
 
-st.title('Análisis de Posiciones en Carrera en Fórmula 1')
+st.title('Análisis en Fórmula 1')
 
-# Selección de parámetros por el usuario
-year = st.sidebar.selectbox('Selecciona el año', [2020, 2021, 2022, 2023])
-gp = st.sidebar.text_input('Escribe el Gran Premio', 'Spain')
-session_type = 'R'  # Para análisis de carrera
+# Menú / Página principal con opciones de gráficos
+opcion_grafico = st.sidebar.selectbox(
+    'Elige una opción de gráfico:',
+    ('Evolución de las posiciones', 'Tiempos de vuelta')
+)
 
-session = cargar_datos_de_sesion(year, gp, session_type)
+# Lógica para mostrar el gráfico basado en la elección
+if opcion_grafico == 'Evolución de las posiciones':
+    # Cargar datos específicos si es necesario
+    # Código para mostrar el gráfico de evolución de las posiciones
+    # Selección de parámetros por el usuario
+    year = st.sidebar.selectbox('Selecciona el año', [2020, 2021, 2022, 2023, 2024])
+    gp = st.sidebar.text_input('Escribe el Gran Premio', 'Spain')
+    session_type = 'R'  # Para análisis de carrera
 
-# Crear el gráfico de posiciones de los pilotos
-fig, ax = plt.subplots(figsize=(8.0, 4.9))
+    session = cargar_datos_de_sesion(year, gp, session_type)
 
-for drv in session.drivers:
-    drv_laps = session.laps.pick_driver(drv)
+    # Verifica si hay datos cargados para la sesión
+    if session.laps.empty:
+        st.error('No se encontraron datos para esta sesión.')
+    else:
+        # Inicializa una figura de Plotly
+        fig = go.Figure()
 
-    abb = drv_laps['Driver'].iloc[0]
-    try:
-        color = plotting.driver_color(abb)
-    except KeyError:
-        color = 'gray'  # Color predeterminado para pilotos sin color específico
-    
-    ax.plot(drv_laps['LapNumber'], drv_laps['Position'], label=abb, color=color)
+        for drv in session.drivers:
+            drv_laps = session.laps.pick_driver(drv)
+            abb = drv_laps['Driver'].iloc[0]
+
+            try:
+                color = plotting.driver_color(abb)
+            except KeyError:
+                color = 'gray'  # Color predeterminado para pilotos sin color específico
+
+            # Añade una línea al gráfico por cada piloto, ajustando el tamaño de los marcadores
+            fig.add_trace(go.Scatter(x=drv_laps['LapNumber'], y=drv_laps['Position'],
+                                    mode='lines+markers',
+                                    name=abb,
+                                    line=dict(color=color),
+                                    marker=dict(color=color, size=2)))  # Ajusta el tamaño aquí
+
+        # Configura el layout del gráfico
+        fig.update_layout(title=f'Evolución de las Posiciones - {gp} {year}',
+                        xaxis_title='Número de Vuelta',
+                        yaxis_title='Posición',
+                        yaxis=dict(autorange="reversed"),  # Invierte el eje Y para que la posición 1 esté arriba
+                        legend_title='Piloto',
+                        template='plotly_white')
+
+        # Muestra el gráfico en Streamlit
+        st.plotly_chart(fig)
+elif opcion_grafico == 'Tiempos de vuelta':
+    # Selección de parámetros por el usuario
+    year = st.sidebar.selectbox('Selecciona el año', [2020, 2021, 2022, 2023, 2024])
+    gp = st.sidebar.text_input('Escribe el Gran Premio', 'Spain')
+    session_type = st.sidebar.selectbox('Selecciona el tipo de sesión', ['FP1', 'FP2', 'FP3', 'Q', 'R'])
+
+    session = cargar_datos_de_sesion(year, gp, session_type)
+
+    if session.laps.empty:
+        st.error("No se encontraron datos para esta sesión.")
+    else:
+        # Lista de pilotos en la sesión
+        drivers = session.laps['Driver'].unique()
+        selected_driver = st.selectbox('Selecciona un piloto', drivers)
+
+        # Filtrar los datos para el piloto seleccionado
+        driver_laps = session.laps.pick_driver(selected_driver)
+
+        # Convertir LapTime a segundos para facilitar la visualización
+        driver_laps['LapTimeSeconds'] = driver_laps['LapTime'].dt.total_seconds()
+
+        # Encuentra la vuelta más rápida para destacarla
+        vuelta_rapida = driver_laps.loc[driver_laps['LapTimeSeconds'].idxmin()]
+
+        # Crear el gráfico para el piloto seleccionado usando Plotly
+        fig = go.Figure()
+
+        # Añadir la línea de tiempos de vuelta
+        fig.add_trace(go.Scatter(x=driver_laps['LapNumber'], y=driver_laps['LapTimeSeconds'],
+                                mode='lines+markers',
+                                name='Tiempo de vuelta',
+                                line=dict(color='dodgerblue'),
+                                marker=dict(color='dodgerblue', size=6)))
+
+        # Destacar la vuelta más rápida
+        fig.add_trace(go.Scatter(x=[vuelta_rapida['LapNumber']], y=[vuelta_rapida['LapTimeSeconds']],
+                                mode='markers',
+                                name='Vuelta más rápida',
+                                marker=dict(color='red', size=10)))
+
+        # Añadir texto de vuelta más rápida
+        fig.add_annotation(x=vuelta_rapida['LapNumber'], y=vuelta_rapida['LapTimeSeconds'],
+                        text=f"Vuelta más rápida: {vuelta_rapida['LapTimeSeconds']:.2f}s",
+                        showarrow=True,
+                        arrowhead=1,
+                        ax=0,
+                        ay=-40)
+
+        # Personalizar layout del gráfico
+        fig.update_layout(title=f'Tiempos de vuelta de {selected_driver}',
+                        xaxis_title='Número de Vuelta',
+                        yaxis_title='Tiempo de Vuelta (segundos)',
+                        legend_title='Leyenda',
+                        template='plotly_white')
+
+        # Mostrar el gráfico en Streamlit
+        st.plotly_chart(fig)
 
 
-# Finalizar el gráfico
-ax.set_ylim([20.5, 0.5])
-ax.set_yticks([1, 5, 10, 15, 20])
-ax.set_xlabel('Vuelta')
-ax.set_ylabel('Posición')
-
-# Añadir la leyenda fuera del área del gráfico
-ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-plt.tight_layout()
-
-# Mostrar el gráfico en Streamlit
-st.pyplot(fig)
