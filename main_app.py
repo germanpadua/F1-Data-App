@@ -29,9 +29,15 @@ fig, ax = plt.subplots(figsize=(8.0, 4.9))
 
 for drv in session.drivers:
     drv_laps = session.laps.pick_driver(drv)
+
     abb = drv_laps['Driver'].iloc[0]
-    color = plotting.driver_color(abb)
+    try:
+        color = plotting.driver_color(abb)
+    except KeyError:
+        color = 'gray'  # Color predeterminado para pilotos sin color específico
+    
     ax.plot(drv_laps['LapNumber'], drv_laps['Position'], label=abb, color=color)
+
 
 # Finalizar el gráfico
 ax.set_ylim([20.5, 0.5])
