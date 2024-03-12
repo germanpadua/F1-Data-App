@@ -74,22 +74,24 @@ if st.checkbox("Mostrar información adicional del circuito"):
     if coordenadas:
         latitude = coordenadas[0]
         longitude = coordenadas[1]
-        pointsData=[{'lat': coordenadas[0], 'lng': coordenadas[1], 'size': 0.3, 'color': 'red'}]
-        labelsData=[{'lat': coordenadas[0], 'lng': coordenadas[1], 'size': 0.3, 'color': 'red', 'text': ubicacion_evento}]
-        streamlit_globe(pointsData=pointsData, labelsData=labelsData, daytime='day', width=800, height=600)
-        
-        # Crear un mapa de Folium centrado en las coordenadas
-        m = folium.Map(location=[latitude, longitude], zoom_start=12)
+        # Utiliza st.columns para adaptar el tamaño de los widgets y mapas
+        col1, col2 = st.columns(2)
 
-        # Añadir un marcador para el circuito
-        folium.Marker(
-            [latitude, longitude],
-            popup=f"<i>{ubicacion_evento}</i>",
-            tooltip=ubicacion_evento
-        ).add_to(m)
+        # En la columna de la izquierda, puedes colocar el globo terráqueo o cualquier otro contenido
+        with col1:
+            pointsData=[{'lat': latitude, 'lng': longitude, 'size': 0.3, 'color': 'red'}]
+            labelsData=[{'lat': latitude, 'lng': longitude, 'size': 0.3, 'color': 'red', 'text': ubicacion_evento}]
+            # Ajusta el tamaño basado en el ancho de la columna
+            streamlit_globe(pointsData=pointsData, labelsData=labelsData, daytime='day', width=col1.width, height=400)
 
-        # Mostrar el mapa en Streamlit
-        st_folium(m, width=725, height=500)
+        # En la columna de la derecha, puedes mostrar el mapa de Folium
+        with col2:
+            # Crear un mapa de Folium centrado en las coordenadas
+            m = folium.Map(location=[latitude, longitude], zoom_start=12)
+            # Añadir un marcador para el circuito
+            folium.Marker([latitude, longitude], popup=f"<i>{ubicacion_evento}</i>", tooltip=ubicacion_evento).add_to(m)
+            # Ajusta el tamaño basado en el ancho de la columna
+            st_folium(m, width=col2.width, height=400)
 
     else:
         st.error('No se pudieron obtener las coordenadas del circuito seleccionado.')
