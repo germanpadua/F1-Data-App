@@ -1,4 +1,5 @@
-import fastf1
+from fastf1 import get_session
+from fastf1 import get_event_schedule
 import streamlit as st
 
 @st.cache_data
