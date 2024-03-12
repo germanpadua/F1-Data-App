@@ -14,8 +14,8 @@ def grafico_posiciones(session, gp_selected, year):
         except KeyError:
             color = 'gray'  # Color predeterminado para pilotos sin color específico
 
-    # Añade una línea al gráfico por cada piloto, ajustando el tamaño de los marcadores
-    fig.add_trace(go.Scatter(x=drv_laps['LapNumber'], y=drv_laps['Position'],
+        # Añade una línea al gráfico por cada piloto, ajustando el tamaño de los marcadores
+        fig.add_trace(go.Scatter(x=drv_laps['LapNumber'], y=drv_laps['Position'],
                             mode='lines+markers',
                             name=abb,
                             line=dict(color=color),

@@ -51,7 +51,7 @@ if opcion_grafico == 'Evolución de las posiciones':
     if session.laps.empty:
         st.error('No se encontraron datos para esta sesión.')
     else:
-        fig= grafico_posiciones(session, gp_selected, year)
+        fig = grafico_posiciones(session, gp_selected, year)
         st.plotly_chart(fig)
         
 elif opcion_grafico == 'Tiempos de vuelta':
