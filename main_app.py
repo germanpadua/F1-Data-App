@@ -82,7 +82,7 @@ if st.checkbox("Mostrar información adicional del circuito"):
             pointsData=[{'lat': latitude, 'lng': longitude, 'size': 0.3, 'color': 'red'}]
             labelsData=[{'lat': latitude, 'lng': longitude, 'size': 0.3, 'color': 'red', 'text': ubicacion_evento}]
             # Ajusta el tamaño basado en el ancho de la columna
-            streamlit_globe(pointsData=pointsData, labelsData=labelsData, daytime='day', width=col1.width, height=400)
+            streamlit_globe(pointsData=pointsData, labelsData=labelsData, daytime='day', width=200, height=400)
 
         # En la columna de la derecha, puedes mostrar el mapa de Folium
         with col2:
@@ -91,7 +91,7 @@ if st.checkbox("Mostrar información adicional del circuito"):
             # Añadir un marcador para el circuito
             folium.Marker([latitude, longitude], popup=f"<i>{ubicacion_evento}</i>", tooltip=ubicacion_evento).add_to(m)
             # Ajusta el tamaño basado en el ancho de la columna
-            st_folium(m, width=col2.width, height=400)
+            st_folium(m, width=200, height=400)
 
     else:
         st.error('No se pudieron obtener las coordenadas del circuito seleccionado.')
