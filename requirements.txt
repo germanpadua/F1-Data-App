@@ -3,3 +3,6 @@ fastf1
 matplotlib
 pandas
 plotly
+streamlit-globe
+folium
+streamlit-folium
