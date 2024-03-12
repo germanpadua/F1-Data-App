@@ -3,6 +3,7 @@ from modules.data_loading import cargar_datos_de_sesion, obtener_calendario
 from modules.plotting import grafico_posiciones, grafico_tiempos_vuelta
 from modules.utils import configurar_cache
 from datetime import datetime
+import fastf1
 
 
 # Directorio de caché
