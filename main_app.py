@@ -4,8 +4,15 @@ from fastf1 import plotting
 from matplotlib import pyplot as plt
 import pandas as pd
 
+# Directorio de caché
+cache_dir = 'cache'
+
+# Verifica si el directorio de caché existe, si no, créalo
+if not os.path.exists(cache_dir):
+    os.makedirs(cache_dir)
+
 # Configuración inicial de FastF1 y matplotlib para la aplicación
-fastf1.Cache.enable_cache('cache')  # Habilita la caché de FastF1
+fastf1.Cache.enable_cache(cache_dir)  # Habilita la caché de FastF1
 plotting.setup_mpl(misc_mpl_mods=False)  # Configuración de matplotlib para FastF1
 
 # Función para cargar los datos de la sesión
