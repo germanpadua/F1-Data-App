@@ -4,13 +4,15 @@ import fastf1
 import pandas as pd
 from datetime import datetime
 from modules.data_loading import cargar_datos_de_sesion, obtener_calendario
-from modules.plotting import grafico_posiciones, grafico_tiempos_vuelta
+from modules.plotting import grafico_posiciones, grafico_tiempos_vuelta, grafico_clasificacion
 from modules.utils import configurar_cache
 import requests
 from streamlit_globe import streamlit_globe
 import folium
 from streamlit_folium import st_folium
-
+import matplotlib.pyplot as plt
+from fastf1 import plotting
+import numpy as np
 
 
 def obtener_coordenadas_osm(query):
@@ -128,7 +130,7 @@ if st.session_state['mostrar_analisis']:
     st.header("Análisis en Fórmula 1")
     opcion_grafico = st.selectbox(
         "Elige una opción de análisis:",
-        ('Evolución de las posiciones', 'Tiempos de vuelta')
+        ('Evolución de las posiciones', 'Tiempos de vuelta', 'Tiempos en clasificación', 'Mapa de calor')
     )
 
     # Lógica para mostrar el gráfico basado en la elección
@@ -152,5 +154,17 @@ if st.session_state['mostrar_analisis']:
                 st.plotly_chart(fig)
             else:
                 st.warning("Por favor, selecciona al menos un piloto.")
+        else:
+            st.error("No se encontraron datos para esta sesión.")
+            
+    elif opcion_grafico == 'Mapa de calor':
+        st.warning("Esta opción aún no está disponible.")
+    
+    elif opcion_grafico == 'Tiempos en clasificación':
+        session_type = 'Q'
+        session = cargar_datos_de_sesion(year, gp_selected, session_type)
+        if not session.laps.empty:
+            fig = grafico_clasificacion(session)
+            st.plotly_chart(fig)
         else:
             st.error("No se encontraron datos para esta sesión.")
