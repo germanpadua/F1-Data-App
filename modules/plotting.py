@@ -1,5 +1,20 @@
 import plotly.graph_objects as go
 from fastf1 import plotting
+import fastf1
+import numpy as np
+from colour import Color
+
+
+def ajustar_tonalidad_color(color_hex, ajuste_luminosidad=0.05):
+    # Convertir hex a color
+    color = Color(color_hex)
+    
+    # Ajustar la luminosidad
+    luminosidad_ajustada = max(min(color.luminance + ajuste_luminosidad, 1), 0)  # Asegurar que está en el rango [0, 1]
+    color.luminance = luminosidad_ajustada
+    
+    return color.hex_l
+
 
 def grafico_posiciones(session, gp_selected, year):
     # Inicializa una figura de Plotly
@@ -31,46 +46,43 @@ def grafico_posiciones(session, gp_selected, year):
 
     return fig
 
-def grafico_tiempos_vuelta(session, selected_driver):
+fastf1.plotting.setup_mpl()  # Necesario para inicializar los colores de compuestos, si no se ha llamado antes
+
+def grafico_tiempos_vuelta(session, selected_drivers):
     fig = go.Figure()
+
+    # Generar colores para cada piloto
     
-    # Filtrar los datos para el piloto seleccionado
-    driver_laps = session.laps.pick_driver(selected_driver)
+    for selected_driver in selected_drivers:
+        # Filtrar los datos para el piloto seleccionado
+        driver_laps = session.laps.pick_driver(selected_driver).copy()
 
-    # Convertir LapTime a segundos para facilitar la visualización
-    driver_laps['LapTimeSeconds'] = driver_laps['LapTime'].dt.total_seconds()
+        # Convertir LapTime a segundos para facilitar la visualización
+        driver_laps['LapTimeSeconds'] = driver_laps['LapTime'].dt.total_seconds()
 
-    # Encuentra la vuelta más rápida para destacarla
-    vuelta_rapida = driver_laps.loc[driver_laps['LapTimeSeconds'].idxmin()]
+        # Obtener el color del piloto
+        piloto_color = fastf1.plotting.driver_color(selected_driver)
 
-    # Añadir la línea de tiempos de vuelta
-    fig.add_trace(go.Scatter(x=driver_laps['LapNumber'], y=driver_laps['LapTimeSeconds'],
-                            mode='lines+markers',
-                            name='Tiempo de vuelta',
-                            line=dict(color='dodgerblue'),
-                            marker=dict(color='dodgerblue', size=6)))
+        # Añadir la línea que une todas las vueltas del piloto con color específico
+        fig.add_trace(go.Scatter(x=driver_laps['LapNumber'], y=driver_laps['LapTimeSeconds'],
+                                 mode='lines',
+                                 name=f'{selected_driver} Line',
+                                 line=dict(color=piloto_color)))
 
-    # Destacar la vuelta más rápida
-    fig.add_trace(go.Scatter(x=[vuelta_rapida['LapNumber']], y=[vuelta_rapida['LapTimeSeconds']],
-                            mode='markers',
-                            name='Vuelta más rápida',
-                            marker=dict(color='red', size=10)))
-
-    # Añadir texto de vuelta más rápida
-    fig.add_annotation(x=vuelta_rapida['LapNumber'], y=vuelta_rapida['LapTimeSeconds'],
-                    text=f"Vuelta más rápida: {vuelta_rapida['LapTimeSeconds']:.2f}s",
-                    showarrow=True,
-                    arrowhead=1,
-                    ax=0,
-                    ay=-40)
+        # Superponer marcadores coloreados por compuesto de neumático
+        for compound, group_data in driver_laps.groupby('Compound'):
+            color = fastf1.plotting.COMPOUND_COLORS.get(compound, '#FFFFFF')  # Usa un color por defecto si el compuesto no está en el diccionario
+            fig.add_trace(go.Scatter(x=group_data['LapNumber'], y=group_data['LapTimeSeconds'],
+                                     mode='markers',
+                                     name=f'{selected_driver} {compound}',
+                                     marker=dict(color=color, size=6),
+                                     legendgroup=selected_driver))  # Agrupa en la leyenda por piloto
 
     # Personalizar layout del gráfico
-    fig.update_layout(title=f'Tiempos de vuelta de {selected_driver}',
-                    xaxis_title='Número de Vuelta',
-                    yaxis_title='Tiempo de Vuelta (segundos)',
-                    legend_title='Leyenda',
-                    template='plotly_white')
-
-    
+    fig.update_layout(title='Comparación de Tiempos de Vuelta por Piloto y Tipo de Neumático',
+                      xaxis_title='Número de Vuelta',
+                      yaxis_title='Tiempo de Vuelta (segundos)',
+                      legend_title='Piloto y Neumático',
+                      template='plotly_white')
 
     return fig

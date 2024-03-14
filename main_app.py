@@ -38,6 +38,25 @@ def obtener_coordenadas_osm(query):
             return None
     else:
         return None
+    
+    
+def obtener_coordenadas_circuito(ubicacion_evento, archivo_circuitos='data/circuitos_f1.csv'):
+    df_circuitos = pd.read_csv(archivo_circuitos)
+    ciudad, pais = ubicacion_evento.split(', ')
+
+    # Primero intenta encontrar un circuito por la ciudad
+    circuito_por_ciudad = df_circuitos[df_circuitos['NAME'].str.contains(ciudad, case=False)]
+    if not circuito_por_ciudad.empty:
+        return (circuito_por_ciudad.iloc[0]['LAT'], circuito_por_ciudad.iloc[0]['LNG'])
+
+    # Si no encuentra por ciudad, verifica si hay un único circuito en el país
+    circuitos_en_pais = df_circuitos[df_circuitos['COUNTRY'].str.contains(pais, case=False)]
+    if len(circuitos_en_pais) == 1:
+        return (circuitos_en_pais.iloc[0]['LAT'], circuitos_en_pais.iloc[0]['LNG'])
+
+    # Si no hay un único circuito en el país, busca las coordenadas de la ciudad y país
+    return obtener_coordenadas_ciudad(ubicacion_evento)
+
 
 # Inicialización y configuración de la cache
 cache_dir = 'cache'
@@ -63,7 +82,7 @@ gp_selected = st.selectbox('Gran Premio', gps_disponibles)
 # Suponiendo que puedes obtener la ubicación del evento así
 ubicacion_evento = schedule.loc[schedule['EventName'] == gp_selected, ['Location', 'Country']].apply(lambda x: f"{x['Location']}, {x['Country']}", axis=1).values[0]
 # Obtener coordenadas del circuito seleccionado
-coordenadas = obtener_coordenadas_osm(ubicacion_evento)
+coordenadas = obtener_coordenadas_circuito(ubicacion_evento)
 
 
 
@@ -87,7 +106,7 @@ if st.checkbox("Mostrar información adicional del circuito"):
         # En la columna de la derecha, puedes mostrar el mapa de Folium
         with col2:
             # Crear un mapa de Folium centrado en las coordenadas
-            m = folium.Map(location=[latitude, longitude], zoom_start=12)
+            m = folium.Map(location=[latitude, longitude], zoom_start=14)
             # Añadir un marcador para el circuito
             folium.Marker([latitude, longitude], popup=f"<i>{ubicacion_evento}</i>", tooltip=ubicacion_evento).add_to(m)
             # Ajusta el tamaño basado en el ancho de la columna
@@ -127,8 +146,11 @@ if st.session_state['mostrar_analisis']:
         session = cargar_datos_de_sesion(year, gp_selected, session_type)
         if not session.laps.empty:
             drivers = session.laps['Driver'].unique()
-            selected_driver = st.selectbox('Selecciona un piloto', drivers)
-            fig = grafico_tiempos_vuelta(session, selected_driver)
-            st.plotly_chart(fig)
+            selected_drivers = st.multiselect('Selecciona pilotos para comparar', drivers, default=drivers[:1])
+            if selected_drivers:
+                fig = grafico_tiempos_vuelta(session, selected_drivers)
+                st.plotly_chart(fig)
+            else:
+                st.warning("Por favor, selecciona al menos un piloto.")
         else:
             st.error("No se encontraron datos para esta sesión.")
