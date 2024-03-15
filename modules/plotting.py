@@ -10,6 +10,9 @@ import matplotlib as mpl
 from matplotlib import pyplot as plt
 import pandas as pd
 import itertools
+import seaborn as sns
+import streamlit as st
+
 
 def ajustar_tonalidad_color(color_hex, ajuste_luminosidad=0.05):
     # Convertir hex a color
@@ -288,3 +291,43 @@ def grafico_comparar_vueltas():
     return fig
 
 
+def grafico_comparar_desgaste(session):
+    # Preparación del entorno de matplotlib
+    fastf1.plotting.setup_mpl(mpl_timedelta_support=False, misc_mpl_mods=False)
+
+    # Obtener los pilotos que terminaron en los puntos y sus vueltas rápidas, excluyendo vueltas lentas
+    point_finishers = session.results[:10]['Abbreviation'].tolist()
+    driver_laps = session.laps.pick_drivers(point_finishers).pick_quicklaps()
+    driver_laps = driver_laps.reset_index(drop=True)
+
+    # Colores de los pilotos basados en sus abreviaciones
+    driver_colors = {abv: fastf1.plotting.DRIVER_COLORS[fastf1.plotting.DRIVER_TRANSLATE[abv]] for abv in point_finishers}
+
+    # Creación de la figura
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    # Conversión de timedelta a segundos para compatibilidad con Seaborn
+    driver_laps["LapTime(s)"] = driver_laps["LapTime"].dt.total_seconds()
+
+    # Gráfico de violin para mostrar las distribuciones de los tiempos de vuelta
+    sns.violinplot(data=driver_laps, x="Driver", y="LapTime(s)", hue="Driver",
+                   inner=None, palette=driver_colors, order=point_finishers)
+
+    # Gráfico de swarm para mostrar los tiempos de vuelta individuales, diferenciados por compuesto de neumático
+    sns.swarmplot(data=driver_laps, x="Driver", y="LapTime(s)",
+                  hue="Compound", palette=fastf1.plotting.COMPOUND_COLORS,
+                  hue_order=["SOFT", "MEDIUM", "HARD"],
+                  order=point_finishers, linewidth=0, size=4)
+
+    # Ajustes estéticos del gráfico
+    ax.set_xlabel("Driver")
+    ax.set_ylabel("Lap Time (s)")
+    plt.suptitle("Lap Time Distributions by Driver and Tyre Compound")
+
+    # Mejora de la estética con despine
+    sns.despine(left=True, bottom=True)
+
+    plt.tight_layout()
+    return fig
+
+   

@@ -4,7 +4,7 @@ import fastf1
 import pandas as pd
 from datetime import datetime
 from modules.data_loading import cargar_datos_de_sesion, obtener_calendario
-from modules.plotting import grafico_posiciones, grafico_tiempos_vuelta, grafico_clasificacion, grafico_comparar_vueltas, grafico_comparar_vueltas_en_mapa
+from modules.plotting import grafico_posiciones, grafico_tiempos_vuelta, grafico_clasificacion, grafico_comparar_vueltas, grafico_comparar_vueltas_en_mapa, grafico_comparar_desgaste
 from modules.utils import configurar_cache
 import requests
 from streamlit_globe import streamlit_globe
@@ -130,7 +130,7 @@ if st.session_state['mostrar_analisis']:
     st.header("Análisis en Fórmula 1")
     opcion_grafico = st.selectbox(
         "Elige una opción de análisis:",
-        ('Evolución de las posiciones', 'Tiempos de vuelta', 'Tiempos en clasificación')
+        ('Evolución de las posiciones', 'Tiempos de vuelta', 'Tiempos en clasificación', 'Comparación desgaste')
     )
 
     # Lógica para mostrar el gráfico basado en la elección
@@ -173,6 +173,13 @@ if st.session_state['mostrar_analisis']:
 
             else:
                 st.warning("Por favor, selecciona dos pilotos.")
-                
         else:
             st.error("No se encontraron datos para esta sesión.")
+    elif opcion_grafico == 'Comparación desgaste':
+        # Uso de la función
+        session_type = 'R'
+        session = cargar_datos_de_sesion(year, gp_selected, session_type)
+        fig = grafico_comparar_desgaste(session)  
+        st.pyplot(fig)
+
+        

@@ -7,3 +7,4 @@ streamlit-globe
 folium
 streamlit-folium
 colour
+seaborn
