@@ -5,7 +5,11 @@ import numpy as np
 from colour import Color
 from fastf1.core import Laps
 from timple.timedelta import strftimedelta
-
+from matplotlib.collections import LineCollection
+import matplotlib as mpl
+from matplotlib import pyplot as plt
+import pandas as pd
+import itertools
 
 def ajustar_tonalidad_color(color_hex, ajuste_luminosidad=0.05):
     # Convertir hex a color
@@ -53,7 +57,11 @@ fastf1.plotting.setup_mpl()  # Necesario para inicializar los colores de compues
 def grafico_tiempos_vuelta(session, selected_drivers):
     fig = go.Figure()
 
-    # Generar colores para cada piloto
+    # Definir una paleta de colores para los pilotos
+    paleta_colores_pilotos = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+    
+    # Ciclar a través de la paleta de colores si hay más pilotos que colores
+    ciclo_colores_pilotos = itertools.cycle(paleta_colores_pilotos)
     
     for selected_driver in selected_drivers:
         # Filtrar los datos para el piloto seleccionado
@@ -62,8 +70,9 @@ def grafico_tiempos_vuelta(session, selected_drivers):
         # Convertir LapTime a segundos para facilitar la visualización
         driver_laps['LapTimeSeconds'] = driver_laps['LapTime'].dt.total_seconds()
 
-        # Obtener el color del piloto
-        piloto_color = fastf1.plotting.driver_color(selected_driver)
+        # Obtener el color del piloto de la paleta
+        piloto_color = next(ciclo_colores_pilotos)
+        # piloto_color = fastf1.plotting.driver_color(selected_driver) # Usar esta línea si se prefiere el color de piloto de FastF1
 
         # Añadir la línea que une todas las vueltas del piloto con color específico
         fig.add_trace(go.Scatter(x=driver_laps['LapNumber'], y=driver_laps['LapTimeSeconds'],
@@ -150,3 +159,132 @@ def grafico_clasificacion(session):
     )
 
     return fig
+
+
+def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
+    # Configurar el esquema de colores para la trama
+    fastf1.plotting.setup_mpl()
+
+    colormap = mpl.cm.PiYG
+
+    # Seleccionar los pilotos y obtener sus mejores vueltas de telemetría
+
+    # Obtener los resultados de la clasificación y los tiempos finales de clasificación para cada piloto
+    results = session.results.copy()
+    results['BestQualifyingTime'] = results.apply(get_best_qualifying_time, axis=1)
+    tiempo_final_piloto1 = results.loc[results['Abbreviation'] == piloto1, 'BestQualifyingTime'].iloc[0]
+    tiempo_final_piloto2 = results.loc[results['Abbreviation'] == piloto2, 'BestQualifyingTime'].iloc[0]
+
+    # Identificar la vuelta que corresponde a este mejor tiempo de clasificación
+    vuelta_final_piloto1 = session.laps.pick_driver(piloto1)[session.laps['LapTime'] == tiempo_final_piloto1].iloc[0]
+    vuelta_final_piloto2 = session.laps.pick_driver(piloto2)[session.laps['LapTime'] == tiempo_final_piloto2].iloc[0]
+
+    # Obtener telemetría para las vueltas finales de clasificación
+    tel_piloto1 = vuelta_final_piloto1.get_telemetry().add_distance()
+    tel_piloto2 = vuelta_final_piloto2.get_telemetry().add_distance()
+
+    # Realizar una unión asof para comparar las vueltas basándose en la distancia
+    comparacion = pd.merge_asof(tel_piloto1, tel_piloto2, on='Distance', suffixes=('_piloto1', '_piloto2'), direction='nearest')
+
+    # Calcular la diferencia de tiempo en cada punto de la vuelta
+    comparacion['DeltaTiempo'] = comparacion['Time_piloto1'] - comparacion['Time_piloto2']
+
+    x = comparacion['X_piloto1']              # values for x-axis
+    y = comparacion['Y_piloto1']              # values for y-axis
+    color = comparacion['DeltaTiempo'].dt.total_seconds()     # value to base color gradient on
+
+    points = np.array([x, y]).T.reshape(-1, 1, 2)
+    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+
+    # Formato del título con nombres de los pilotos y la sesión
+    nombre_evento = session.event['EventName']
+    año_evento = session.event.year
+    nombre_sesion = session.name
+    titulo = f'Comparativa de Qualy: {piloto1} (Fucsia) vs {piloto2} (Verde)'
+
+    # Configuración del título del gráfico
+    fig, ax = plt.subplots(sharex=True, sharey=True, figsize=(12, 6.75))
+    fig.suptitle(titulo, size=24, y=0.97)
+    # Adjust margins and turn of axis
+    plt.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.12)
+    ax.axis('off')
+    
+    # After this, we plot the data itself.
+    # Create background track line
+    ax.plot(x, y,
+            color='black', linestyle='-', linewidth=16, zorder=0)
+
+    ax.set_aspect('equal')
+    
+    # Create a continuous norm to map from data points to colors
+    norm = mpl.colors.TwoSlopeNorm(vmin=color.min(), vcenter=0.0, vmax=color.max())
+
+    lc = LineCollection(segments, cmap=colormap, norm=norm,
+                        linestyle='-', linewidth=5)
+
+    # Set the values used for colormapping
+    lc.set_array(color)
+
+    # Merge all line segments together
+    ax.add_collection(lc)
+
+
+    # Finally, we create a color bar as a legend.
+    cbaxes = fig.add_axes([0.25, 0.05, 0.5, 0.05])
+    normlegend = mpl.colors.TwoSlopeNorm(vmin=color.min(), vcenter=0.0, vmax=color.max())
+    legend = mpl.colorbar.ColorbarBase(cbaxes, norm=normlegend, cmap=colormap,
+                                    orientation="horizontal")
+    
+    # Añadir texto explicativo cerca de la barra de colores
+    plt.text(0.25, 0.11, piloto1 + ' por delante', transform=fig.transFigure, color='fuchsia', ha='left')
+    plt.text(0.75, 0.11, piloto2 + ' por delante', transform=fig.transFigure, color='green', ha='right')
+    
+    return fig
+
+
+
+def grafico_comparar_vueltas():
+    # Configurar el esquema de colores para la trama
+    fastf1.plotting.setup_mpl()
+
+    # Cargar la sesión
+    session = fastf1.get_session(2023, 'Bahrain Grand Prix', 'Q')
+    session.load()
+
+    # Seleccionar los pilotos y obtener sus mejores vueltas de telemetría
+    piloto1 = 'HAM'
+    piloto2 = 'VER'
+
+    vuelta_piloto1 = session.laps.pick_driver(piloto1).pick_fastest()
+    vuelta_piloto2 = session.laps.pick_driver(piloto2).pick_fastest()
+
+    tel_piloto1 = vuelta_piloto1.get_telemetry().add_distance()
+    tel_piloto2 = vuelta_piloto2.get_telemetry().add_distance()
+
+    # Asegurar que los datos están ordenados por distancia antes de intentar cualquier operación
+    tel_piloto1 = tel_piloto1.sort_values(by='Distance')
+    tel_piloto2 = tel_piloto2.sort_values(by='Distance')
+
+    # Realizar una unión asof para comparar las vueltas basándose en la distancia
+    comparacion = pd.merge_asof(tel_piloto1, tel_piloto2, on='Distance', suffixes=('_piloto1', '_piloto2'), direction='nearest')
+
+    # Calcular la diferencia de tiempo en cada punto de la vuelta
+    comparacion['DeltaTiempo'] = comparacion['Time_piloto1'] - comparacion['Time_piloto2']
+
+    # Visualización
+    fig, ax = plt.subplots()
+
+    # Trazar la diferencia de tiempo como una función de la distancia recorrida
+    ax.plot(comparacion['Distance'], comparacion['DeltaTiempo'].dt.total_seconds(), label='Diferencia de tiempo')
+
+    # Establecer el eje y para mostrar las diferencias de tiempo en segundos
+    ax.set_xlabel('Distancia recorrida (m)')
+    ax.set_ylabel('Diferencia de tiempo (s)')
+
+    # Establecer leyenda y título
+    ax.legend()
+    ax.set_title(f'Diferencia de tiempo entre {piloto1} y {piloto2}')
+
+    return fig
+
+

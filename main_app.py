@@ -4,7 +4,7 @@ import fastf1
 import pandas as pd
 from datetime import datetime
 from modules.data_loading import cargar_datos_de_sesion, obtener_calendario
-from modules.plotting import grafico_posiciones, grafico_tiempos_vuelta, grafico_clasificacion
+from modules.plotting import grafico_posiciones, grafico_tiempos_vuelta, grafico_clasificacion, grafico_comparar_vueltas, grafico_comparar_vueltas_en_mapa
 from modules.utils import configurar_cache
 import requests
 from streamlit_globe import streamlit_globe
@@ -130,7 +130,7 @@ if st.session_state['mostrar_analisis']:
     st.header("Análisis en Fórmula 1")
     opcion_grafico = st.selectbox(
         "Elige una opción de análisis:",
-        ('Evolución de las posiciones', 'Tiempos de vuelta', 'Tiempos en clasificación', 'Mapa de calor')
+        ('Evolución de las posiciones', 'Tiempos de vuelta', 'Tiempos en clasificación')
     )
 
     # Lógica para mostrar el gráfico basado en la elección
@@ -157,8 +157,6 @@ if st.session_state['mostrar_analisis']:
         else:
             st.error("No se encontraron datos para esta sesión.")
             
-    elif opcion_grafico == 'Mapa de calor':
-        st.warning("Esta opción aún no está disponible.")
     
     elif opcion_grafico == 'Tiempos en clasificación':
         session_type = 'Q'
@@ -166,5 +164,15 @@ if st.session_state['mostrar_analisis']:
         if not session.laps.empty:
             fig = grafico_clasificacion(session)
             st.plotly_chart(fig)
+            
+            drivers = session.laps['Driver'].unique()
+            selected_drivers = st.multiselect('Selecciona dos pilotos para comparar', drivers, default=(drivers[:1], drivers[1:2]))
+            if len(selected_drivers)==2:
+                fig2 = grafico_comparar_vueltas_en_mapa(session, selected_drivers[0], selected_drivers[1])
+                st.pyplot(fig2)
+
+            else:
+                st.warning("Por favor, selecciona dos pilotos.")
+                
         else:
             st.error("No se encontraron datos para esta sesión.")
