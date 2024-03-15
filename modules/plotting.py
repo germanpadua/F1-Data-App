@@ -221,7 +221,6 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
     ax.set_aspect('equal')
     
     # Create a continuous norm to map from data points to colors
-    absmax = max(abs(color.max()), abs(color.min()))
     
     #norm = mpl.colors.TwoSlopeNorm(vmin=-absmax, vcenter=0.0, vmax=absmax)
     norm = mpl.colors.TwoSlopeNorm(vmin=color.min(), vcenter=0.0, vmax=color.max())
