@@ -126,26 +126,26 @@ def grafico_clasificacion(session):
     pole_time = sorted_results.iloc[0]['BestQualifyingTime']
     sorted_results['TimeDelta'] = (sorted_results['BestQualifyingTime'] - pole_time).dt.total_seconds()
 
-    # Genera colores para cada equipo
-    team_colors_map = {}
-    # Asegúrate de tener suficientes colores para todos los equipos, utilizando 'cycle' para reutilizar la paleta si es necesario
-    fallback_colors = cycle(sns.color_palette("tab20", n_colors=len(sorted_results['TeamName'].unique())))
+     # Genera colores para cada equipo utilizando una paleta más grande para evitar duplicados
+    fallback_colors = cycle(sns.color_palette("tab20", n_colors=20))
     
+    team_colors_map = {}
     for _, lap in sorted_results.iterrows():
         team_name = lap['TeamName']
         if team_name not in team_colors_map:
             try:
-                # Intenta obtener el color del equipo
                 color = fastf1.plotting.team_color(team_name)
             except KeyError:
-                # Si el equipo no está en la lista de colores de fastf1, usa un color de la paleta de fallback
                 color = next(fallback_colors)
-                color = to_hex(color)  # Convierte el color a formato hexadecimal
+                color = to_hex(color)
+            # Verifica que el color no haya sido utilizado ya
+            while color in team_colors_map.values():
+                color = next(fallback_colors)
+                color = to_hex(color)
             team_colors_map[team_name] = color
-    
-    # Usando el mapa de colores para asignar colores a cada vuelta de los resultados
+
     team_colors = [team_colors_map[lap['TeamName']] for _, lap in sorted_results.iterrows()]
-  
+
 
 
     # Construye el gráfico
@@ -224,7 +224,9 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
     ax.set_aspect('equal')
     
     # Create a continuous norm to map from data points to colors
-    norm = mpl.colors.TwoSlopeNorm(vmin=color.min(), vcenter=0.0, vmax=color.max())
+    absmax = max(abs(color.max()), abs(color.min()))
+    
+    norm = mpl.colors.TwoSlopeNorm(vmin=-absmax, vcenter=0.0, vmax=absmax)
 
     lc = LineCollection(segments, cmap=colormap, norm=norm,
                         linestyle='-', linewidth=5)
@@ -235,10 +237,22 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
     # Merge all line segments together
     ax.add_collection(lc)
 
+    # Calcular la dirección de la flecha
+    dx = x.iloc[1] - x.iloc[0]  # Diferencia en X entre el segundo y primer punto
+    dy = y.iloc[1] - y.iloc[0]  # Diferencia en Y entre el segundo y primer punto
 
+    # Añadir la flecha indicando el comienzo de la vuelta
+    ax.annotate('', xy=(x.iloc[1], y.iloc[1]), xytext=(x.iloc[0], y.iloc[0]),
+                arrowprops=dict(facecolor='gold', edgecolor='gold', arrowstyle='simple', lw=5),
+                annotation_clip=False)
+
+    # Añadir texto explicativo para la flecha
+    # Ajusta la posición (x, y) según sea necesario para evitar la superposición con otros elementos
+    ax.text(x.iloc[0] - 300, y.iloc[0], 'Inicio de la vuelta', color='gold', ha='right', va='top')
+    
     # Finally, we create a color bar as a legend.
     cbaxes = fig.add_axes([0.25, 0.05, 0.5, 0.05])
-    normlegend = mpl.colors.TwoSlopeNorm(vmin=color.min(), vcenter=0.0, vmax=color.max())
+    normlegend = mpl.colors.TwoSlopeNorm(vmin=-absmax, vcenter=0.0, vmax=absmax)
     legend = mpl.colorbar.ColorbarBase(cbaxes, norm=normlegend, cmap=colormap,
                                     orientation="horizontal")
     
