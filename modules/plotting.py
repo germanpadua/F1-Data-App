@@ -128,22 +128,24 @@ def grafico_clasificacion(session):
 
     # Genera colores para cada equipo
     team_colors_map = {}
-    fallback_colors = sns.color_palette("tab20", len(sorted_results['TeamName'].unique()))
-    fallback_colors_iter = cycle(fallback_colors)
-
+    # Asegúrate de tener suficientes colores para todos los equipos, utilizando 'cycle' para reutilizar la paleta si es necesario
+    fallback_colors = cycle(sns.color_palette("tab20", n_colors=len(sorted_results['TeamName'].unique())))
+    
     for _, lap in sorted_results.iterrows():
         team_name = lap['TeamName']
         if team_name not in team_colors_map:
             try:
-                # Intenta obtener el color del equipo si es la temporada actual
+                # Intenta obtener el color del equipo
                 color = fastf1.plotting.team_color(team_name)
             except KeyError:
-                # Si no está definido o no es la temporada actual, usa el color de fallback
-                color = next(fallback_colors_iter)
-                color = to_hex(color)
+                # Si el equipo no está en la lista de colores de fastf1, usa un color de la paleta de fallback
+                color = next(fallback_colors)
+                color = to_hex(color)  # Convierte el color a formato hexadecimal
             team_colors_map[team_name] = color
-
+    
+    # Usando el mapa de colores para asignar colores a cada vuelta de los resultados
     team_colors = [team_colors_map[lap['TeamName']] for _, lap in sorted_results.iterrows()]
+  
 
 
     # Construye el gráfico
