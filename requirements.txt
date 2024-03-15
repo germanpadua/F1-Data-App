@@ -7,4 +7,3 @@ streamlit-globe
 folium
 streamlit-folium
 colour
-itertools
