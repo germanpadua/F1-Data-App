@@ -12,6 +12,9 @@ import pandas as pd
 import itertools
 import seaborn as sns
 import streamlit as st
+import datetime
+from matplotlib.colors import to_hex
+from itertools import cycle
 
 
 def ajustar_tonalidad_color(color_hex, ajuste_luminosidad=0.05):
@@ -109,55 +112,54 @@ def get_best_qualifying_time(row):
             return row[q]
     return pd.NaT
 
+
 def grafico_clasificacion(session):
-    # Asegurarse de que los datos de la sesión están cargados
+    # Asegúrate de cargar los datos de la sesión
     session.load()
     
-    # Obtener resultados de clasificación
+    # Obtén los resultados de clasificación y calcula el mejor tiempo
     results = session.results.copy()
-
-    # Aplicar la función para obtener el mejor tiempo de clasificación
     results['BestQualifyingTime'] = results.apply(get_best_qualifying_time, axis=1)
-    
-    # Filtrar las filas sin tiempo de clasificación
     filtered_results = results.dropna(subset=['BestQualifyingTime'])
-
-    # Ordenar los resultados por el mejor tiempo de clasificación
     sorted_results = filtered_results.sort_values(by='BestQualifyingTime').reset_index(drop=True)
 
-    # La pole es el mejor tiempo entre todos los pilotos que tengan un tiempo en Q3
-    if 'Q3' in sorted_results.columns:
-        pole_time = sorted_results[~sorted_results['Q3'].isna()].iloc[0]['Q3']
-    else:
-        pole_time = sorted_results.iloc[0]['BestQualifyingTime']
-    
+    pole_time = sorted_results.iloc[0]['BestQualifyingTime']
     sorted_results['TimeDelta'] = (sorted_results['BestQualifyingTime'] - pole_time).dt.total_seconds()
-    
 
-    # Preparar datos para Plotly
-    drivers = sorted_results['Abbreviation']
-    time_deltas = sorted_results['TimeDelta']
+    # Genera colores para cada equipo
+    team_colors_map = {}
+    fallback_colors = sns.color_palette("tab20", len(sorted_results['TeamName'].unique()))
+    fallback_colors_iter = cycle(fallback_colors)
 
-    # Colores del equipo para cada piloto
-    team_colors = [fastf1.plotting.team_color(lap['TeamName']) for _, lap in sorted_results.iterrows()]
+    for _, lap in sorted_results.iterrows():
+        team_name = lap['TeamName']
+        if team_name not in team_colors_map:
+            try:
+                # Intenta obtener el color del equipo si es la temporada actual
+                color = fastf1.plotting.team_color(team_name)
+            except KeyError:
+                # Si no está definido o no es la temporada actual, usa el color de fallback
+                color = next(fallback_colors_iter)
+                color = to_hex(color)
+            team_colors_map[team_name] = color
 
-    # Crear el gráfico con Plotly
+    team_colors = [team_colors_map[lap['TeamName']] for _, lap in sorted_results.iterrows()]
+
+
+    # Construye el gráfico
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        y=drivers,
-        x=time_deltas,
+        y=sorted_results['Abbreviation'],
+        x=sorted_results['TimeDelta'],
         orientation='h',
-        marker_color=team_colors
+        marker=dict(color=team_colors)
     ))
 
-    # Personalización adicional del gráfico
-    pole_lap_time_str = strftimedelta(pole_time, '%m:%s.%ms')
+    # Personaliza el layout
     fig.update_layout(
-        title=f"{session.event['EventName']} {session.event.year} Qualifying<br>"
-              f"Fastest Pole Lap: {pole_lap_time_str}",
-        xaxis_title="Delta Time (s) from Pole",
-        yaxis_title="Driver",
-        yaxis_autorange="reversed",
+        title=f"{session.event['EventName']} {session.event.year} Qualifying Comparison",
+        xaxis_title="Time Delta (s) from Pole",
+        yaxis=dict(autorange="reversed"),
         template="plotly_white"
     )
 
