@@ -204,9 +204,6 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
     segments = np.concatenate([points[:-1], points[1:]], axis=1)
 
     # Formato del título con nombres de los pilotos y la sesión
-    nombre_evento = session.event['EventName']
-    año_evento = session.event.year
-    nombre_sesion = session.name
     titulo = f'Comparativa de Qualy: {piloto1} (Fucsia) vs {piloto2} (Verde)'
 
     # Configuración del título del gráfico
@@ -226,8 +223,9 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
     # Create a continuous norm to map from data points to colors
     absmax = max(abs(color.max()), abs(color.min()))
     
-    norm = mpl.colors.TwoSlopeNorm(vmin=-absmax, vcenter=0.0, vmax=absmax)
-
+    #norm = mpl.colors.TwoSlopeNorm(vmin=-absmax, vcenter=0.0, vmax=absmax)
+    norm = mpl.colors.TwoSlopeNorm(vmin=color.min(), vcenter=0.0, vmax=color.max())
+    #norm = mpl.colors.SymLogNorm(linthresh=0.05, vmin=-absmax, vmax=absmax)
     lc = LineCollection(segments, cmap=colormap, norm=norm,
                         linestyle='-', linewidth=5)
 
@@ -252,7 +250,10 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
     
     # Finally, we create a color bar as a legend.
     cbaxes = fig.add_axes([0.25, 0.05, 0.5, 0.05])
-    normlegend = mpl.colors.TwoSlopeNorm(vmin=-absmax, vcenter=0.0, vmax=absmax)
+    
+    #normlegend = mpl.colors.TwoSlopeNorm(vmin=-absmax, vcenter=0.0, vmax=absmax)
+    normlegend = mpl.colors.TwoSlopeNorm(vmin=color.min(), vcenter=0.0, vmax=color.max())
+    #normlegend = mpl.colors.SymLogNorm(linthresh=0.003, vmin=-absmax, vmax=absmax)
     legend = mpl.colorbar.ColorbarBase(cbaxes, norm=normlegend, cmap=colormap,
                                     orientation="horizontal")
     
