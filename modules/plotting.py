@@ -309,11 +309,16 @@ def grafico_comparar_vueltas():
     return fig
 
 
+import os
+
 def grafico_comparar_desgaste(session):
     # Preparación del entorno de matplotlib
     #fastf1.plotting.setup_mpl(mpl_timedelta_support=False, misc_mpl_mods=False)
 
     # Obtener los pilotos que terminaron en los puntos y sus vueltas rápidas, excluyendo vueltas lentas
+
+    result = os.popen('pip list').read()
+    st.code(result, language=None)
     point_finishers = session.results[:10]['Abbreviation'].tolist()
     driver_laps = session.laps.pick_drivers(point_finishers).pick_quicklaps()
     driver_laps = driver_laps.reset_index(drop=True)
