@@ -8,4 +8,3 @@ folium
 streamlit-folium
 colour
 seaborn
-scipy
