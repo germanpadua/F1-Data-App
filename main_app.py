@@ -4,7 +4,7 @@ import fastf1
 import pandas as pd
 from datetime import datetime
 from modules.data_loading import cargar_datos_de_sesion, obtener_calendario
-from modules.plotting import grafico_posiciones, grafico_tiempos_vuelta, grafico_clasificacion, grafico_comparar_vueltas, grafico_comparar_vueltas_en_mapa, grafico_comparar_desgaste
+from modules.plotting import grafico_posiciones, grafico_tiempos_vuelta, grafico_clasificacion, grafico_comparar_vueltas, grafico_comparar_vueltas_en_mapa, grafico_comparar_desgaste, mostrar_mapa_circuito, grafico_vel_media_equipo
 from modules.utils import configurar_cache
 import requests
 from streamlit_globe import streamlit_globe
@@ -13,6 +13,7 @@ from streamlit_folium import st_folium
 import matplotlib.pyplot as plt
 from fastf1 import plotting
 import numpy as np
+import plotly.express as px
 
 
 def obtener_coordenadas_osm(query):
@@ -57,14 +58,14 @@ def obtener_coordenadas_circuito(ubicacion_evento, archivo_circuitos='data/circu
         return (circuitos_en_pais.iloc[0]['LAT'], circuitos_en_pais.iloc[0]['LNG'])
 
     # Si no hay un único circuito en el país, busca las coordenadas de la ciudad y país
-    return obtener_coordenadas_ciudad(ubicacion_evento)
+    return obtener_coordenadas_osm(ubicacion_evento)
 
 
 # Inicialización y configuración de la cache
 cache_dir = 'cache'
 configurar_cache(cache_dir)
 
-st.title('Análisis en Fórmula 1')
+st.title('Análisis de Fórmula 1')
 
 
 
@@ -78,6 +79,7 @@ year = st.selectbox('Año', years, index=default_year_index)
 # Paso 2: Selección del circuito
 schedule = obtener_calendario(year)
 gps_disponibles = schedule['EventName'].unique().tolist()
+gps_disponibles = [gp for gp in gps_disponibles if "Pre-Season" not in gp]
 gp_selected = st.selectbox('Gran Premio', gps_disponibles)
 
 # Obtén la ubicación del circuito seleccionado para mostrar en el mapa
@@ -103,7 +105,7 @@ if st.checkbox("Mostrar información adicional del circuito"):
             pointsData=[{'lat': latitude, 'lng': longitude, 'size': 0.3, 'color': 'red'}]
             labelsData=[{'lat': latitude, 'lng': longitude, 'size': 0.3, 'color': 'red', 'text': ubicacion_evento}]
             # Ajusta el tamaño basado en el ancho de la columna
-            streamlit_globe(pointsData=pointsData, labelsData=labelsData, daytime='day', width=200, height=400)
+            streamlit_globe(pointsData=pointsData, labelsData=labelsData, daytime='day', width=400, height=400)
 
         # En la columna de la derecha, puedes mostrar el mapa de Folium
         with col2:
@@ -112,10 +114,18 @@ if st.checkbox("Mostrar información adicional del circuito"):
             # Añadir un marcador para el circuito
             folium.Marker([latitude, longitude], popup=f"<i>{ubicacion_evento}</i>", tooltip=ubicacion_evento).add_to(m)
             # Ajusta el tamaño basado en el ancho de la columna
-            st_folium(m, width=200, height=400)
+            st_folium(m, width=400, height=400)
 
     else:
         st.error('No se pudieron obtener las coordenadas del circuito seleccionado.')
+        
+    # Mostrar circuito
+    session = cargar_datos_de_sesion(year, gp_selected, 'R')
+    
+    mostrar_mapa_circuito(session)
+    
+    
+    
 
     
 if 'mostrar_analisis' not in st.session_state:
@@ -127,10 +137,9 @@ if st.button("Explorar análisis de Fórmula 1"):
     st.session_state['mostrar_analisis'] = True
     
 if st.session_state['mostrar_analisis']:
-    st.header("Análisis en Fórmula 1")
     opcion_grafico = st.selectbox(
         "Elige una opción de análisis:",
-        ('Evolución de las posiciones', 'Tiempos de vuelta', 'Tiempos en clasificación', 'Comparación desgaste')
+        ('Evolución de las posiciones', 'Tiempos de vuelta', 'Tiempos en clasificación', 'Velocidad en carrera')
     )
 
     # Lógica para mostrar el gráfico basado en la elección
@@ -175,11 +184,14 @@ if st.session_state['mostrar_analisis']:
                 st.warning("Por favor, selecciona dos pilotos.")
         else:
             st.error("No se encontraron datos para esta sesión.")
-    elif opcion_grafico == 'Comparación desgaste':
+    elif opcion_grafico == 'Velocidad en carrera':
         # Uso de la función
         session_type = 'R'
         session = cargar_datos_de_sesion(year, gp_selected, session_type)
-        fig = grafico_comparar_desgaste(session)  
-        st.pyplot(fig)
-
+        fig1,fig2 = grafico_comparar_desgaste(session)  
+        st.pyplot(fig1)
+        st.pyplot(fig2)
         
+        fig3 = grafico_vel_media_equipo(session)
+
+        st.pyplot(fig3)
