@@ -320,7 +320,21 @@ def grafico_comparar_desgaste(session):
     driver_laps = driver_laps.reset_index(drop=True)
 
     # Colores de los pilotos basados en sus abreviaciones
-    driver_colors = {abv: fastf1.plotting.DRIVER_COLORS[fastf1.plotting.DRIVER_TRANSLATE[abv]] for abv in point_finishers}
+    driver_colors = {}
+    fallback_colors = cycle(sns.color_palette("tab20", n_colors=20))
+    for abv in point_finishers:
+        try:
+            # Intenta obtener el color del piloto desde la configuración de fastf1
+            color = fastf1.plotting.DRIVER_COLORS[fastf1.plotting.DRIVER_TRANSLATE[abv]]
+        except KeyError:
+            # Si el piloto no tiene un color asignado, genera uno aleatorio
+            color = next(fallback_colors)
+            color = to_hex(color)
+            # Asegúrate de que el color generado no esté ya utilizado
+            while color in driver_colors.values():
+                color = next(fallback_colors)
+                color = to_hex(color)
+        driver_colors[abv] = color
 
     # Creación de la figura
     fig, ax = plt.subplots(figsize=(10, 5))
@@ -355,7 +369,21 @@ def grafico_comparar_desgaste(session):
     driver_laps = driver_laps.reset_index(drop=True)
 
     # Colores de los pilotos basados en sus abreviaciones
-    driver_colors = {abv: fastf1.plotting.DRIVER_COLORS[fastf1.plotting.DRIVER_TRANSLATE[abv]] for abv in no_point_finishers}
+    driver_colors = {}
+    fallback_colors = cycle(sns.color_palette("tab20", n_colors=20))
+    for abv in no_point_finishers:
+        try:
+            # Intenta obtener el color del piloto desde la configuración de fastf1
+            color = fastf1.plotting.DRIVER_COLORS[fastf1.plotting.DRIVER_TRANSLATE[abv]]
+        except KeyError:
+            # Si el piloto no tiene un color asignado, genera uno aleatorio
+            color = next(fallback_colors)
+            color = to_hex(color)
+            # Asegúrate de que el color generado no esté ya utilizado
+            while color in driver_colors.values():
+                color = next(fallback_colors)
+                color = to_hex(color)
+        driver_colors[abv] = color
 
     # Creación de la figura
     fig2, ax = plt.subplots(figsize=(10, 5))
