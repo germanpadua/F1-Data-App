@@ -15,6 +15,7 @@ import streamlit as st
 import datetime
 from matplotlib.colors import to_hex
 from itertools import cycle
+from modules.utils import rotate
 
 
 def ajustar_tonalidad_color(color_hex, ajuste_luminosidad=0.05):
@@ -346,6 +347,163 @@ def grafico_comparar_desgaste(session):
     sns.despine(left=True, bottom=True)
 
     plt.tight_layout()
-    return fig
+    
+    
+    # Obtener los pilotos que terminaron en los puntos y sus vueltas rápidas, excluyendo vueltas lentas
+    no_point_finishers = session.results[10:]['Abbreviation'].tolist()
+    driver_laps = session.laps.pick_drivers(no_point_finishers).pick_quicklaps()
+    driver_laps = driver_laps.reset_index(drop=True)
+
+    # Colores de los pilotos basados en sus abreviaciones
+    driver_colors = {abv: fastf1.plotting.DRIVER_COLORS[fastf1.plotting.DRIVER_TRANSLATE[abv]] for abv in no_point_finishers}
+
+    # Creación de la figura
+    fig2, ax = plt.subplots(figsize=(10, 5))
+
+    # Conversión de timedelta a segundos para compatibilidad con Seaborn
+    driver_laps["LapTime(s)"] = driver_laps["LapTime"].dt.total_seconds()
+
+    # Gráfico de violin para mostrar las distribuciones de los tiempos de vuelta
+    sns.violinplot(data=driver_laps, x="Driver", y="LapTime(s)", hue="Driver",
+                   inner=None, palette=driver_colors, order=no_point_finishers)
+
+    # Gráfico de swarm para mostrar los tiempos de vuelta individuales, diferenciados por compuesto de neumático
+    sns.swarmplot(data=driver_laps, x="Driver", y="LapTime(s)",
+                  hue="Compound", palette=fastf1.plotting.COMPOUND_COLORS,
+                  hue_order=["SOFT", "MEDIUM", "HARD"],
+                  order=no_point_finishers, linewidth=0, size=4)
+
+    # Ajustes estéticos del gráfico
+    ax.set_xlabel("Driver")
+    ax.set_ylabel("Lap Time (s)")
+
+    # Mejora de la estética con despine
+    sns.despine(left=True, bottom=True)
+
+    plt.tight_layout()
+    
+    return fig, fig2
 
    
+   
+   
+def mostrar_mapa_circuito(session):
+
+    lap = session.laps.pick_fastest()
+    pos = lap.get_pos_data()
+    
+    circuit_info = session.get_circuit_info()
+    
+    # Get an array of shape [n, 2] where n is the number of points and the second
+    # axis is x and y.
+    track = pos.loc[:, ('X', 'Y')].to_numpy()
+
+    # Convert the rotation angle from degrees to radian.
+    track_angle = circuit_info.rotation / 180 * np.pi
+
+    fig, ax = plt.subplots()
+    
+    # Rotate and plot the track map.
+    rotated_track = rotate(track, angle=track_angle)
+    ax.plot(rotated_track[:, 0], rotated_track[:, 1])
+    
+    offset_vector = [500, 0]  # offset length is chosen arbitrarily to 'look good'
+
+    # Iterate over all corners.
+    for _, corner in circuit_info.corners.iterrows():
+        # Create a string from corner number and letter
+        txt = f"{corner['Number']}{corner['Letter']}"
+
+        # Convert the angle from degrees to radian.
+        offset_angle = corner['Angle'] / 180 * np.pi
+
+        # Rotate the offset vector so that it points sideways from the track.
+        offset_x, offset_y = rotate(offset_vector, angle=offset_angle)
+
+        # Add the offset to the position of the corner
+        text_x = corner['X'] + offset_x
+        text_y = corner['Y'] + offset_y
+
+        # Rotate the text position equivalently to the rest of the track map
+        text_x, text_y = rotate([text_x, text_y], angle=track_angle)
+
+        # Rotate the center of the corner equivalently to the rest of the track map
+        track_x, track_y = rotate([corner['X'], corner['Y']], angle=track_angle)
+
+        # Draw a circle next to the track.
+        ax.scatter(text_x, text_y, color='grey', s=140)
+
+        # Draw a line from the track to this circle.
+        ax.plot([track_x, text_x], [track_y, text_y], color='grey')
+
+        # Finally, print the corner number inside the circle.
+        ax.text(text_x, text_y, txt,
+                va='center_baseline', ha='center', size='small', color='white')
+        
+    plt.title(session.event['EventName'] + ' Circuit')
+    plt.xticks([])
+    plt.yticks([])
+    plt.axis('equal')
+    st.pyplot(fig)
+    
+    
+    
+def grafico_vel_media_equipo(session):
+    laps = session.laps.pick_quicklaps()
+    
+    transformed_laps = laps.copy()
+    transformed_laps.loc[:, "LapTime (s)"] = laps["LapTime"].dt.total_seconds()
+    
+    # order the team from the fastest (lowest median lap time) tp slower
+    team_order = (
+        transformed_laps[["Team", "LapTime (s)"]]
+        .groupby("Team")
+        .median()["LapTime (s)"]
+        .sort_values()
+        .index
+    )
+    # Iniciar la paleta de colores de fallback
+    fallback_colors = cycle(sns.color_palette("tab20", n_colors=20))
+
+    # Inicializar el mapa de colores del equipo
+    team_colors_map = {}
+    for team in team_order:
+        try:
+            # Intenta obtener el color del equipo usando fastf1
+            color = fastf1.plotting.team_color(team)
+            if color == "none":  # Verificar si el color es "none"
+                raise KeyError  # Forzar el uso del color de fallback
+        except KeyError:
+            # Si el equipo no está en la lista de colores de fastf1 o el color es "none", usa un color de la paleta de fallback
+            color = next(fallback_colors)
+            color = to_hex(color)  # Convertir el color a formato hexadecimal
+        
+        # Verificar si el color ya está en uso y buscar un color alternativo si es necesario
+        while color in team_colors_map.values():
+            color = next(fallback_colors)
+            color = to_hex(color)
+        
+        team_colors_map[team] = color
+    
+    
+    fig, ax = plt.subplots(figsize=(15, 10))
+    sns.boxplot(
+        data=transformed_laps,
+        x="Team",
+        y="LapTime (s)",
+        hue="Team",
+        order=team_order,
+        palette=team_colors_map,
+        whiskerprops=dict(color="white"),
+        boxprops=dict(edgecolor="white"),
+        medianprops=dict(color="grey"),
+        capprops=dict(color="white"),
+    )
+
+    plt.title("Distribución de los tiempos de vuelta por equipo")
+    plt.grid(visible=False)
+
+    # x-label is redundant
+    ax.set(xlabel=None)
+    plt.tight_layout()
+    return fig
