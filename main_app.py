@@ -2,7 +2,7 @@ import os
 import streamlit as st
 import fastf1
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from modules.data_loading import cargar_datos_de_sesion, obtener_calendario
 from modules.plotting import grafico_posiciones, grafico_tiempos_vuelta, grafico_clasificacion, grafico_comparar_vueltas, grafico_comparar_vueltas_en_mapa, grafico_comparar_desgaste, mostrar_mapa_circuito, grafico_vel_media_equipo
 from modules.utils import configurar_cache
@@ -120,10 +120,20 @@ if st.checkbox("Mostrar información adicional del circuito"):
         st.error('No se pudieron obtener las coordenadas del circuito seleccionado.')
         
     # Mostrar circuito
-    session = cargar_datos_de_sesion(year, gp_selected, 'R')
     
-    mostrar_mapa_circuito(session)
-    
+    for years in range(2024, 2018, -1):  # Itera hacia atrás desde el año más reciente
+        try:
+            # Intenta obtener el calendario para el año especificado
+            schedule = obtener_calendario(years)
+            # Busca el evento en el calendario
+            if gp_selected in schedule['EventName'].unique():
+                # Si el evento existe, intenta cargar los datos de la carrera
+                session = cargar_datos_de_sesion(years, gp_selected, 'R')
+                mostrar_mapa_circuito(session)
+                break
+        except Exception as e:
+            # Si hay un error, imprime el mensaje y continúa con el siguiente año
+            print(f"No se pudo cargar los datos para el año {years}: {e}")
     
     
 
@@ -133,8 +143,27 @@ if 'mostrar_analisis' not in st.session_state:
     
 # Botón para ocultar información y mostrar las opciones de análisis
 # Botón para cambiar el estado de mostrar_analisis
-if st.button("Explorar análisis de Fórmula 1"):
-    st.session_state['mostrar_analisis'] = True
+# Supongamos que has obtenido la fecha del evento de alguna manera, por ejemplo:
+
+event = fastf1.get_event(year, gp_selected)
+event_date = event.get_session_date('R', utc=True)
+
+# Comprueba si la fecha actual es posterior a la fecha del evento
+current_time = datetime.now()
+if current_time < event_date:
+    countdown = event_date - current_time
+    # Desglosar la cuenta atrás en días y horas
+    days_remaining = countdown.days
+    hours_remaining = countdown.seconds // 3600  # Convertir segundos a horas
+
+    # Formatear la salida de la cuenta atrás
+    countdown_str = f"{days_remaining} días y {hours_remaining} horas hasta la carrera. El análisis estará disponible tras la carrera"
+    st.warning(countdown_str)
+    st.session_state['mostrar_analisis'] = False
+elif current_time >= event_date:
+    # Si la carrera ya se ha disputado, muestra el botón
+    if st.button("Explorar análisis de Fórmula 1"):
+        st.session_state['mostrar_analisis'] = True
     
 if st.session_state['mostrar_analisis']:
     opcion_grafico = st.selectbox(
@@ -177,9 +206,9 @@ if st.session_state['mostrar_analisis']:
             drivers = session.laps['Driver'].unique()
             selected_drivers = st.multiselect('Selecciona dos pilotos para comparar', drivers, default=(drivers[:1], drivers[1:2]))
             if len(selected_drivers)==2:
-                fig2 = grafico_comparar_vueltas_en_mapa(session, selected_drivers[0], selected_drivers[1])
+                fig2, fig3 = grafico_comparar_vueltas_en_mapa(session, selected_drivers[0], selected_drivers[1])
                 st.pyplot(fig2)
-
+                st.pyplot(fig3)
             else:
                 st.warning("Por favor, selecciona dos pilotos.")
         else:
