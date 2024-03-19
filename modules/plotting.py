@@ -16,6 +16,9 @@ import datetime
 from matplotlib.colors import to_hex
 from itertools import cycle
 from modules.utils import rotate
+from matplotlib.ticker import FuncFormatter
+from scipy.signal import savgol_filter
+
 
 
 def ajustar_tonalidad_color(color_hex, ajuste_luminosidad=0.05):
@@ -61,6 +64,11 @@ def grafico_posiciones(session, gp_selected, year):
 
 fastf1.plotting.setup_mpl()  # Necesario para inicializar los colores de compuestos, si no se ha llamado antes
 
+def format_func(value, tick_number):
+        minutes = int(value // 60)
+        seconds = int(value % 60)
+        return f"{minutes}:{seconds:02d}"
+    
 def grafico_tiempos_vuelta(session, selected_drivers):
     fig = go.Figure()
 
@@ -70,16 +78,21 @@ def grafico_tiempos_vuelta(session, selected_drivers):
     # Ciclar a través de la paleta de colores si hay más pilotos que colores
     ciclo_colores_pilotos = itertools.cycle(paleta_colores_pilotos)
     
+    # Variable para almacenar el tiempo máximo de vuelta
+    max_lap_time = 0  
+    
     for selected_driver in selected_drivers:
         # Filtrar los datos para el piloto seleccionado
-        driver_laps = session.laps.pick_driver(selected_driver).copy()
+        driver_laps = session.laps.pick_driver(selected_driver).pick_quicklaps().copy()
 
         # Convertir LapTime a segundos para facilitar la visualización
         driver_laps['LapTimeSeconds'] = driver_laps['LapTime'].dt.total_seconds()
 
+        # Actualizar el tiempo máximo de vuelta si es necesario
+        max_lap_time = max(max_lap_time, driver_laps['LapTimeSeconds'].max())
+
         # Obtener el color del piloto de la paleta
         piloto_color = next(ciclo_colores_pilotos)
-        # piloto_color = fastf1.plotting.driver_color(selected_driver) # Usar esta línea si se prefiere el color de piloto de FastF1
 
         # Añadir la línea que une todas las vueltas del piloto con color específico
         fig.add_trace(go.Scatter(x=driver_laps['LapNumber'], y=driver_laps['LapTimeSeconds'],
@@ -89,17 +102,27 @@ def grafico_tiempos_vuelta(session, selected_drivers):
 
         # Superponer marcadores coloreados por compuesto de neumático
         for compound, group_data in driver_laps.groupby('Compound'):
-            color = fastf1.plotting.COMPOUND_COLORS.get(compound, '#FFFFFF')  # Usa un color por defecto si el compuesto no está en el diccionario
+            color = fastf1.plotting.COMPOUND_COLORS.get(compound, '#FFFFFF')
             fig.add_trace(go.Scatter(x=group_data['LapNumber'], y=group_data['LapTimeSeconds'],
                                      mode='markers',
                                      name=f'{selected_driver} {compound}',
                                      marker=dict(color=color, size=6),
-                                     legendgroup=selected_driver))  # Agrupa en la leyenda por piloto
+                                     legendgroup=selected_driver))
+
+    # Definir la función de formato de tiempo
+    def format_time(seconds):
+        minutes = int(seconds // 60)
+        seconds_remainder = seconds % 60
+        return f"{minutes}:{seconds_remainder:02.0f}"
+
+    # Generar ticks cada 15 segundos hasta el tiempo máximo de vuelta, más un buffer
+    tickvals = np.arange(0, max_lap_time + 1, 1)
+    ticktext = [format_time(val) for val in tickvals]
 
     # Personalizar layout del gráfico
     fig.update_layout(title='Comparación de Tiempos de Vuelta por Piloto y Tipo de Neumático',
                       xaxis_title='Número de Vuelta',
-                      yaxis_title='Tiempo de Vuelta (segundos)',
+                      yaxis=dict(title='Tiempo de Vuelta (min:seg)', tickvals=tickvals, ticktext=ticktext),
                       legend_title='Piloto y Neumático',
                       template='plotly_white')
 
@@ -168,6 +191,40 @@ def grafico_clasificacion(session):
 
     return fig
 
+def grafico_delta_vs_distancia(comparacion):
+    # Crear la figura y el eje
+    fig, ax = plt.subplots(figsize=(15, 5))
+
+    # Aplicar un filtro de media móvil
+    #comparacion['DeltaSuavizado'] = (comparacion['DeltaTiempo'].dt.total_seconds()).rolling(window=5, center=True).mean()
+
+    # O aplicar un filtro Savitzky-Golay para suavizar los datos
+    comparacion['DeltaSuavizado'] = savgol_filter(comparacion['DeltaTiempo'].dt.total_seconds(), 51, 3) # window_size 51, polynomial order 3
+    # Dibujar el gráfico de línea con la diferencia de tiempo
+    ax.plot(comparacion['Distance'], comparacion['DeltaSuavizado'], label='Delta Tiempo')
+
+    # Establecer etiquetas y título
+    ax.set_xlabel('Distancia (m)')
+    ax.set_ylabel('Delta (s)')
+    ax.set_title('Delta de Tiempo (Suavizado) a lo largo de la Vuelta')
+
+    # Opcional: establecer límites para el eje Y si es necesario
+    # ax.set_ylim(-1, 1)
+
+    # Opcional: añadir una línea horizontal en y=0 para claridad
+    ax.axhline(0, color='black', linewidth=0.5, linestyle='--')
+
+    # Añadir leyenda
+    ax.legend()
+
+    # Añadir una rejilla
+    ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+
+    # Ajustar la trama y guardar o mostrar el gráfico
+    plt.tight_layout()
+    # plt.show()  # Mostrar la imagen en un entorno interactivo
+
+    return fig
 
 def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
     # Configurar el esquema de colores para la trama
@@ -261,7 +318,8 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
     plt.text(0.25, 0.11, piloto1 + ' por delante', transform=fig.transFigure, color='fuchsia', ha='left')
     plt.text(0.75, 0.11, piloto2 + ' por delante', transform=fig.transFigure, color='green', ha='right')
     
-    return fig
+    fig2 = grafico_delta_vs_distancia(comparacion)
+    return fig, fig2
 
 
 
