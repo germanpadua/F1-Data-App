@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from fastf1 import plotting
 import numpy as np
 import plotly.express as px
+from modules.data_loading import guardar_datos_mapa, cargar_datos_de_sesion, cargar_mapa_circuito
 
 
 def obtener_coordenadas_osm(query):
@@ -88,8 +89,6 @@ ubicacion_evento = schedule.loc[schedule['EventName'] == gp_selected, ['Location
 # Obtener coordenadas del circuito seleccionado
 coordenadas = obtener_coordenadas_circuito(ubicacion_evento)
 
-
-
 # Información adicional del circuito
 if st.checkbox("Mostrar información adicional del circuito"):
     st.write(f"Ubicación: {ubicacion_evento}")
@@ -121,19 +120,44 @@ if st.checkbox("Mostrar información adicional del circuito"):
         
     # Mostrar circuito
     
-    for years in range(2024, 2018, -1):  # Itera hacia atrás desde el año más reciente
-        try:
-            # Intenta obtener el calendario para el año especificado
-            schedule = obtener_calendario(years)
-            # Busca el evento en el calendario
-            if gp_selected in schedule['EventName'].unique():
-                # Si el evento existe, intenta cargar los datos de la carrera
-                session = cargar_datos_de_sesion(years, gp_selected, 'R')
-                mostrar_mapa_circuito(session)
+    if os.path.exists("data/circuit_image/"+gp_selected+".png"):
+        # CARGAR DIRECTAMENTE EL GRAFICO (MENOS ESPACIO)
+        circuito = cargar_mapa_circuito("data/circuit_image/"+gp_selected+".png")
+        st.pyplot(circuito)
+
+    else:
+                        
+        for years in range(2024, 2018, -1):  # Itera hacia atrás desde el año más reciente
+            funciona = False
+            try:
+                # Intenta obtener el calendario para el año especificado
+                schedule = obtener_calendario(years)
+                # Busca el evento en el calendario
+                if gp_selected in schedule['EventName'].unique():
+                    
+                    if os.path.exists("data/circuit_image/"+gp_selected+".png"):
+                        # CARGAR DIRECTAMENTE EL GRAFICO (MENOS ESPACIO)
+                        circuito = cargar_mapa_circuito("data/circuit_image/"+gp_selected+".png")
+                    else:
+                        session = cargar_datos_de_sesion(years, gp_selected, 'R')
+                        lap = session.laps.pick_fastest()
+                        pos = lap.get_pos_data()
+                        circuit_info = session.get_circuit_info()
+                        # GUARDAR DIRECTAMENTE EL GRAFICO (MENOS ESPACIO)
+                        circuito = mostrar_mapa_circuito(lap, pos, circuit_info, session.event['EventName'])
+                        
+                    # Si el evento existe, intenta cargar los datos de la carrera
+                    
+                    
+                    st.pyplot(circuito)
+                    funciona = True
+
+            except Exception as e:
+                # Si hay un error, imprime el mensaje y continúa con el siguiente año
+                print(f"No se pudo cargar los datos para el año {years}: {e}")
+            
+            if funciona:
                 break
-        except Exception as e:
-            # Si hay un error, imprime el mensaje y continúa con el siguiente año
-            print(f"No se pudo cargar los datos para el año {years}: {e}")
     
     
 

@@ -18,8 +18,8 @@ from itertools import cycle
 from modules.utils import rotate
 from matplotlib.ticker import FuncFormatter
 from scipy.signal import savgol_filter
-
-
+import pickle
+import os
 
 def ajustar_tonalidad_color(color_hex, ajuste_luminosidad=0.05):
     # Convertir hex a color
@@ -471,15 +471,10 @@ def grafico_comparar_desgaste(session):
     return fig, fig2
 
    
-   
-   
-def mostrar_mapa_circuito(session):
 
-    lap = session.laps.pick_fastest()
-    pos = lap.get_pos_data()
-    
-    circuit_info = session.get_circuit_info()
-    
+
+def mostrar_mapa_circuito(lap, pos, circuit_info, name):
+        
     # Get an array of shape [n, 2] where n is the number of points and the second
     # axis is x and y.
     track = pos.loc[:, ('X', 'Y')].to_numpy()
@@ -526,11 +521,14 @@ def mostrar_mapa_circuito(session):
         ax.text(text_x, text_y, txt,
                 va='center_baseline', ha='center', size='small', color='white')
         
-    plt.title(session.event['EventName'] + ' Circuit')
+    plt.title(name + ' Circuit')
     plt.xticks([])
     plt.yticks([])
     plt.axis('equal')
-    st.pyplot(fig)
+    plt.savefig('data/circuit_image/'+name + '.png')
+    
+    return fig
+    
     
     
     
