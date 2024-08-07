@@ -162,7 +162,7 @@ def grafico_tiempos_vuelta(session, year, selected_drivers):
             fig.add_trace(go.Scatter(x=group_data['LapNumber'], y=group_data['LapTimeSeconds'],
                                      mode='markers',
                                      name=f'{selected_driver} {compound}',
-                                     marker=dict(color=color, size=6),
+                                     marker=dict(color=color, size=6, line=dict(color="white", width=0.5)),
                                      legendgroup=selected_driver))
 
     # Definir la función de formato de tiempo
@@ -512,7 +512,8 @@ def grafico_comparar_desgaste(session, year):
     sns.swarmplot(data=driver_laps, x="Driver", y="LapTime(s)",
                   hue="Compound", palette=fastf1.plotting.COMPOUND_COLORS,
                   hue_order=["SOFT", "MEDIUM", "HARD"],
-                  order=point_finishers, linewidth=0, size=4)
+                  order=point_finishers, edgecolor='white', linewidth=0.5, size=4)
+
 
     # Ajustes estéticos del gráfico
     ax.set_xlabel("Driver")
