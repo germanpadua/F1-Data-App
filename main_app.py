@@ -16,21 +16,9 @@ import numpy as np
 import plotly.express as px
 from modules.data_loading import guardar_datos_mapa, cargar_datos_de_sesion, cargar_mapa_circuito
 
-
 def obtener_coordenadas_osm(query):
-    """Obtiene las coordenadas (latitud y longitud) de una consulta dada usando OpenStreetMap Nominatim API.
-    
-    Args:
-        query (str): La consulta de búsqueda, por ejemplo, el nombre de un circuito de Fórmula 1.
-    
-    Returns:
-        tuple: Un par de coordenadas (latitud, longitud).
-    """
     nominatim_url = "https://nominatim.openstreetmap.org/search"
-    parametros = {
-        'q': query,
-        'format': 'json'
-    }
+    parametros = {'q': query, 'format': 'json'}
     response = requests.get(nominatim_url, params=parametros)
     if response.status_code == 200:
         resultados = response.json()
@@ -42,33 +30,85 @@ def obtener_coordenadas_osm(query):
             return None
     else:
         return None
-    
-    
+
 def obtener_coordenadas_circuito(ubicacion_evento, archivo_circuitos='data/circuitos_f1.csv'):
     df_circuitos = pd.read_csv(archivo_circuitos)
     ciudad, pais = ubicacion_evento.split(', ')
 
-    # Primero intenta encontrar un circuito por la ciudad
     circuito_por_ciudad = df_circuitos[df_circuitos['NAME'].str.contains(ciudad, case=False)]
     if not circuito_por_ciudad.empty:
         return (circuito_por_ciudad.iloc[0]['LAT'], circuito_por_ciudad.iloc[0]['LNG'])
 
-    # Si no encuentra por ciudad, verifica si hay un único circuito en el país
     circuitos_en_pais = df_circuitos[df_circuitos['COUNTRY'].str.contains(pais, case=False)]
     if len(circuitos_en_pais) == 1:
         return (circuitos_en_pais.iloc[0]['LAT'], circuitos_en_pais.iloc[0]['LNG'])
 
-    # Si no hay un único circuito en el país, busca las coordenadas de la ciudad y país
     return obtener_coordenadas_osm(ubicacion_evento)
 
+def mostrar_analisis():
+    if f'mostrar_analisis_{analisis_seleccionado}' in st.session_state and st.session_state[f'mostrar_analisis_{analisis_seleccionado}']:
+        if analisis_seleccionado == 'Qualy':
+            session = cargar_datos_de_sesion(year, gp_selected, 'Q')
+            if not session.laps.empty:
+                fig = grafico_clasificacion(session)
+                st.plotly_chart(fig)
+                
+                drivers = session.laps['Driver'].unique()
+                selected_drivers = st.multiselect('Selecciona dos pilotos para comparar', drivers, default=(drivers[:1], drivers[1:2]))
+                if len(selected_drivers) == 2:
+                    fig2, fig3 = grafico_comparar_vueltas_en_mapa(session, selected_drivers[0], selected_drivers[1])
+                    st.pyplot(fig2)
+                    st.pyplot(fig3)
+                else:
+                    st.warning("Por favor, selecciona dos pilotos.")
+            else:
+                st.error("No se encontraron datos para esta sesión.")
+        elif analisis_seleccionado == 'Carrera':
+            session = cargar_datos_de_sesion(year, gp_selected, 'R')
+            opcion_grafico = st.selectbox(
+                "Elige una opción de análisis:",
+                ('Evolución de las posiciones', 'Tiempos de vuelta','Velocidad en carrera'),
+                key="opcion_analisis_selectbox"
+            )
+            if opcion_grafico == 'Evolución de las posiciones':        
+                if not session.laps.empty:
+                    fig = grafico_posiciones(session, gp_selected, year)
+                    st.plotly_chart(fig)
+                else:
+                    st.error('No se encontraron datos para esta sesión.')
 
+            elif opcion_grafico == 'Tiempos de vuelta':
+                if not session.laps.empty:
+                    drivers = session.laps['Driver'].unique()
+                    selected_drivers = st.multiselect('Selecciona pilotos para comparar', drivers, default=drivers[:1])
+                    if selected_drivers:
+                        fig = grafico_tiempos_vuelta(session, selected_drivers)
+                        st.plotly_chart(fig)
+                    else:
+                        st.warning("Por favor, selecciona al menos un piloto.")
+                else:
+                    st.error("No se encontraron datos para esta sesión.")
+
+            elif opcion_grafico == 'Velocidad en carrera':
+                if not session.laps.empty:
+                    fig1, fig2 = grafico_comparar_desgaste(session)
+                    st.pyplot(fig1)
+                    st.pyplot(fig2)
+
+                    fig3 = grafico_vel_media_equipo(session)
+                    st.pyplot(fig3)
+                else:
+                    st.error("No se encontraron datos para esta sesión.")
+        else:
+            st.warning(f"Análisis de {analisis_seleccionado} no disponible.")
+
+    
 # Inicialización y configuración de la cache
 cache_dir = 'cache'
 configurar_cache(cache_dir)
 
+
 st.title('Análisis de Fórmula 1')
-
-
 
 # Paso 1: Selección del año
 st.header("Selecciona el Año y el Circuito")
@@ -84,167 +124,113 @@ gps_disponibles = [gp for gp in gps_disponibles if "Pre-Season" not in gp]
 gp_selected = st.selectbox('Gran Premio', gps_disponibles)
 
 # Obtén la ubicación del circuito seleccionado para mostrar en el mapa
-# Suponiendo que puedes obtener la ubicación del evento así
 ubicacion_evento = schedule.loc[schedule['EventName'] == gp_selected, ['Location', 'Country']].apply(lambda x: f"{x['Location']}, {x['Country']}", axis=1).values[0]
-# Obtener coordenadas del circuito seleccionado
 coordenadas = obtener_coordenadas_circuito(ubicacion_evento)
 
 # Información adicional del circuito
 if st.checkbox("Mostrar información adicional del circuito"):
     st.write(f"Ubicación: {ubicacion_evento}")
-    # Aquí puedes agregar más información relevante sobre el circuito
     if coordenadas:
         latitude = coordenadas[0]
         longitude = coordenadas[1]
-        # Utiliza st.columns para adaptar el tamaño de los widgets y mapas
         col1, col2 = st.columns(2)
 
-        # En la columna de la izquierda, puedes colocar el globo terráqueo o cualquier otro contenido
         with col1:
-            pointsData=[{'lat': latitude, 'lng': longitude, 'size': 0.3, 'color': 'red'}]
-            labelsData=[{'lat': latitude, 'lng': longitude, 'size': 0.3, 'color': 'red', 'text': ubicacion_evento}]
-            # Ajusta el tamaño basado en el ancho de la columna
+            pointsData = [{'lat': latitude, 'lng': longitude, 'size': 0.3, 'color': 'red'}]
+            labelsData = [{'lat': latitude, 'lng': longitude, 'size': 0.3, 'color': 'red', 'text': ubicacion_evento}]
             streamlit_globe(pointsData=pointsData, labelsData=labelsData, daytime='day', width=400, height=400)
 
-        # En la columna de la derecha, puedes mostrar el mapa de Folium
         with col2:
-            # Crear un mapa de Folium centrado en las coordenadas
             m = folium.Map(location=[latitude, longitude], zoom_start=14)
-            # Añadir un marcador para el circuito
             folium.Marker([latitude, longitude], popup=f"<i>{ubicacion_evento}</i>", tooltip=ubicacion_evento).add_to(m)
-            # Ajusta el tamaño basado en el ancho de la columna
             st_folium(m, width=400, height=400)
-
     else:
         st.error('No se pudieron obtener las coordenadas del circuito seleccionado.')
         
-    # Mostrar circuito
-    
-    if os.path.exists("data/circuit_image/"+gp_selected+".png"):
-        # CARGAR DIRECTAMENTE EL GRAFICO (MENOS ESPACIO)
-        circuito = cargar_mapa_circuito("data/circuit_image/"+gp_selected+".png")
+    if os.path.exists("data/circuit_image/" + gp_selected + ".png"):
+        circuito = cargar_mapa_circuito("data/circuit_image/" + gp_selected + ".png")
         st.pyplot(circuito)
-
     else:
-                        
-        for years in range(2024, 2018, -1):  # Itera hacia atrás desde el año más reciente
+        for years in range(2024, 2018, -1):
             funciona = False
             try:
-                # Intenta obtener el calendario para el año especificado
                 schedule = obtener_calendario(years)
-                # Busca el evento en el calendario
                 if gp_selected in schedule['EventName'].unique():
-                    
-                    if os.path.exists("data/circuit_image/"+gp_selected+".png"):
-                        # CARGAR DIRECTAMENTE EL GRAFICO (MENOS ESPACIO)
-                        circuito = cargar_mapa_circuito("data/circuit_image/"+gp_selected+".png")
+                    if os.path.exists("data/circuit_image/" + gp_selected + ".png"):
+                        circuito = cargar_mapa_circuito("data/circuit_image/" + gp_selected + ".png")
                     else:
                         session = cargar_datos_de_sesion(years, gp_selected, 'R')
                         lap = session.laps.pick_fastest()
                         pos = lap.get_pos_data()
                         circuit_info = session.get_circuit_info()
-                        # GUARDAR DIRECTAMENTE EL GRAFICO (MENOS ESPACIO)
                         circuito = mostrar_mapa_circuito(lap, pos, circuit_info, session.event['EventName'])
-                        
-                    # Si el evento existe, intenta cargar los datos de la carrera
-                    
-                    
                     st.pyplot(circuito)
                     funciona = True
-
             except Exception as e:
-                # Si hay un error, imprime el mensaje y continúa con el siguiente año
                 print(f"No se pudo cargar los datos para el año {years}: {e}")
-            
             if funciona:
                 break
-    
-    
 
-    
 if 'mostrar_analisis' not in st.session_state:
     st.session_state['mostrar_analisis'] = False
-    
-# Botón para ocultar información y mostrar las opciones de análisis
-# Botón para cambiar el estado de mostrar_analisis
-# Supongamos que has obtenido la fecha del evento de alguna manera, por ejemplo:
 
 event = fastf1.get_event(year, gp_selected)
-event_date = event.get_session_date('R', utc=True)
+event_date = event.get_session_date('FP1', utc=True)
 
-# Comprueba si la fecha actual es posterior a la fecha del evento
-current_time = datetime.now()
-if current_time < event_date:
-    countdown = event_date - current_time
-    # Desglosar la cuenta atrás en días y horas
-    days_remaining = countdown.days
-    hours_remaining = countdown.seconds // 3600  # Convertir segundos a horas
+fechas = None
 
-    # Formatear la salida de la cuenta atrás
-    countdown_str = f"{days_remaining} días y {hours_remaining} horas hasta la carrera. El análisis estará disponible tras la carrera"
-    st.warning(countdown_str)
-    st.session_state['mostrar_analisis'] = False
-elif current_time >= event_date:
-    # Si la carrera ya se ha disputado, muestra el botón
-    if st.button("Explorar análisis de Fórmula 1"):
-        st.session_state['mostrar_analisis'] = True
-    
-if st.session_state['mostrar_analisis']:
-    opcion_grafico = st.selectbox(
-        "Elige una opción de análisis:",
-        ('Evolución de las posiciones', 'Tiempos de vuelta', 'Tiempos en clasificación', 'Velocidad en carrera')
-    )
+if event['EventFormat'] == 'conventional':
+    prac1_date = event.get_session_date('FP1', utc=True)
+    prac2_date = event.get_session_date('FP2', utc=True)
+    prac3_date = event.get_session_date('FP3', utc=True)
+    qualy_date = event.get_session_date('Q', utc=True)
+    race_date = event.get_session_date('R', utc=True)
+    fechas = {'FP1': prac1_date, 'FP2': prac2_date, 'FP3': prac3_date, 'Qualy': qualy_date, 'Carrera': race_date}
 
-    # Lógica para mostrar el gráfico basado en la elección
-    if opcion_grafico == 'Evolución de las posiciones':
-        session_type = 'R'  # Para análisis de carrera
-        session = cargar_datos_de_sesion(year, gp_selected, session_type)
-        if not session.laps.empty:
-            fig = grafico_posiciones(session, gp_selected, year)
-            st.plotly_chart(fig)
-        else:
-            st.error('No se encontraron datos para esta sesión.')
+elif event['EventFormat'] == 'sprint':
+    prac1_date = event.get_session_date('FP1', utc=True)
+    qualy_date = event.get_session_date('Q', utc=True)
+    prac2_date = event.get_session_date('FP2', utc=True)
+    sprint_date = event.get_session_date('S', utc=True)
+    race_date = event.get_session_date('R', utc=True)
+    fechas = {'FP1': prac1_date, 'Qualy': qualy_date, 'FP2': prac2_date, 'Sprint': sprint_date, 'Carrera': race_date}
 
-    elif opcion_grafico == 'Tiempos de vuelta':
-        session_type = 'R'
-        session = cargar_datos_de_sesion(year, gp_selected, session_type)
-        if not session.laps.empty:
-            drivers = session.laps['Driver'].unique()
-            selected_drivers = st.multiselect('Selecciona pilotos para comparar', drivers, default=drivers[:1])
-            if selected_drivers:
-                fig = grafico_tiempos_vuelta(session, selected_drivers)
-                st.plotly_chart(fig)
-            else:
-                st.warning("Por favor, selecciona al menos un piloto.")
-        else:
-            st.error("No se encontraron datos para esta sesión.")
-            
-    
-    elif opcion_grafico == 'Tiempos en clasificación':
-        session_type = 'Q'
-        session = cargar_datos_de_sesion(year, gp_selected, session_type)
-        if not session.laps.empty:
-            fig = grafico_clasificacion(session)
-            st.plotly_chart(fig)
-            
-            drivers = session.laps['Driver'].unique()
-            selected_drivers = st.multiselect('Selecciona dos pilotos para comparar', drivers, default=(drivers[:1], drivers[1:2]))
-            if len(selected_drivers)==2:
-                fig2, fig3 = grafico_comparar_vueltas_en_mapa(session, selected_drivers[0], selected_drivers[1])
-                st.pyplot(fig2)
-                st.pyplot(fig3)
-            else:
-                st.warning("Por favor, selecciona dos pilotos.")
-        else:
-            st.error("No se encontraron datos para esta sesión.")
-    elif opcion_grafico == 'Velocidad en carrera':
-        # Uso de la función
-        session_type = 'R'
-        session = cargar_datos_de_sesion(year, gp_selected, session_type)
-        fig1,fig2 = grafico_comparar_desgaste(session)  
-        st.pyplot(fig1)
-        st.pyplot(fig2)
-        
-        fig3 = grafico_vel_media_equipo(session)
+elif event['EventFormat'] == 'sprint-shootout':
+    prac1_date = event.get_session_date('FP1', utc=True)
+    qualy_date = event.get_session_date('Q', utc=True)
+    sprint_shootout_date = event.get_session_date('SS', utc=True)
+    sprint_date = event.get_session_date('S', utc=True)
+    race_date = event.get_session_date('R', utc=True)
+    fechas = {'FP1': prac1_date, 'Qualy': qualy_date, 'Sprint Shootout': sprint_shootout_date, 'Sprint': sprint_date, 'Carrera': race_date}
 
-        st.pyplot(fig3)
+elif event['EventFormat'] == 'sprint_qualifying':
+    prac1_date = event.get_session_date('FP1', utc=True)
+    sprint_qualy_date = event.get_session_date('SQ', utc=True)
+    sprint_date = event.get_session_date('S', utc=True)
+    qualy_date = event.get_session_date('Q', utc=True)
+    race_date = event.get_session_date('R', utc=True)
+    fechas = {'FP1': prac1_date, 'Sprint Qualy': sprint_qualy_date, 'Sprint': sprint_date, 'Qualy': qualy_date, 'Carrera': race_date}
+else:
+    st.write("No se ha encontrado el formato del evento")
+    st.write(event['EventFormat'])
+
+if fechas:
+    current_time = datetime.now()
+    if current_time < fechas['FP1']:
+        countdown = fechas['Carrera'] - current_time
+        days_remaining = countdown.days
+        hours_remaining = countdown.seconds // 3600
+        countdown_str = f"{days_remaining} días y {hours_remaining} horas hasta la carrera. El análisis estará disponible tras la carrera"
+        st.warning(countdown_str)
+        st.session_state['mostrar_analisis'] = False
+    else:
+        analisis_opciones = [key for key, date in fechas.items() if current_time >= date]
+        if analisis_opciones:
+            analisis_seleccionado = st.selectbox("Selecciona una sesión para analizar", analisis_opciones, key="selectbox_sesiones")
+            st.session_state[f'mostrar_analisis_{analisis_seleccionado}'] = True
+
+    mostrar_analisis()
+else:
+    st.write("No se ha definido 'fechas'. Verifica el formato del evento.")
+
+
