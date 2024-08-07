@@ -21,6 +21,57 @@ from scipy.signal import savgol_filter
 import pickle
 import os
 
+
+driver_dash_styles = {
+    2024: {
+        'VER': 'solid',
+        'PER': 'dash',
+        'HAM': 'solid',
+        'RUS': 'dash',
+        'LEC': 'solid',
+        'SAI': 'dash',
+        'NOR': 'solid',
+        'PIA': 'dash',
+        'ALO': 'solid',
+        'STR': 'dash',
+        'GAS': 'solid',
+        'OCO': 'dash',
+        'TSU': 'solid',
+        'DEV': 'dash',
+        'ALB': 'solid',
+        'SAR': 'dash',
+        'BOT': 'solid',
+        'ZHO': 'dash',
+        'MAG': 'solid',
+        'HUL': 'dash'
+    },
+    2023: {
+        'VER': 'solid',
+        'PER': 'dash',
+        'HAM': 'solid',
+        'RUS': 'dash',
+        'LEC': 'solid',
+        'SAI': 'dash',
+        'NOR': 'solid',
+        'PIA': 'dash',
+        'ALO': 'solid',
+        'STR': 'dash',
+        'GAS': 'solid',
+        'OCO': 'dash',
+        'TSU': 'solid',
+        'DEV': 'dash',
+        'LAW': 'dash',
+        'RIC': 'dash',
+        'ALB': 'solid',
+        'SAR': 'dash',
+        'BOT': 'solid',
+        'ZHO': 'dash',
+        'MAG': 'solid',
+        'HUL': 'dash'
+    },
+    # Añade más años y pilotos según sea necesario
+}
+
 def ajustar_tonalidad_color(color_hex, ajuste_luminosidad=0.05):
     # Convertir hex a color
     color = Color(color_hex)
@@ -41,15 +92,18 @@ def grafico_posiciones(session, gp_selected, year):
         abb = drv_laps['Driver'].iloc[0]
 
         try:
-            color = plotting.driver_color(abb)
+            color = plotting.get_driver_color(abb, session)
         except KeyError:
             color = 'gray'  # Color predeterminado para pilotos sin color específico
 
+        # Obtener el estilo de línea del diccionario
+        dash = driver_dash_styles.get(year, {}).get(abb, 'solid')
+        
         # Añade una línea al gráfico por cada piloto, ajustando el tamaño de los marcadores
         fig.add_trace(go.Scatter(x=drv_laps['LapNumber'], y=drv_laps['Position'],
                             mode='lines+markers',
                             name=abb,
-                            line=dict(color=color),
+                            line=dict(color=color, dash=dash),
                             marker=dict(color=color, size=2)))  # Ajusta el tamaño aquí
 
     # Configura el layout del gráfico
@@ -69,14 +123,14 @@ def format_func(value, tick_number):
         seconds = int(value % 60)
         return f"{minutes}:{seconds:02d}"
     
-def grafico_tiempos_vuelta(session, selected_drivers):
+def grafico_tiempos_vuelta(session, year, selected_drivers):
     fig = go.Figure()
 
     # Definir una paleta de colores para los pilotos
-    paleta_colores_pilotos = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+    #paleta_colores_pilotos = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
     
     # Ciclar a través de la paleta de colores si hay más pilotos que colores
-    ciclo_colores_pilotos = itertools.cycle(paleta_colores_pilotos)
+    #ciclo_colores_pilotos = itertools.cycle(paleta_colores_pilotos)
     
     # Variable para almacenar el tiempo máximo de vuelta
     max_lap_time = 0  
@@ -92,13 +146,15 @@ def grafico_tiempos_vuelta(session, selected_drivers):
         max_lap_time = max(max_lap_time, driver_laps['LapTimeSeconds'].max())
 
         # Obtener el color del piloto de la paleta
-        piloto_color = next(ciclo_colores_pilotos)
-
+        piloto_color = plotting.get_driver_color(selected_driver, session)
+        
+        dash = driver_dash_styles.get(year, {}).get(selected_driver, 'solid')
+        
         # Añadir la línea que une todas las vueltas del piloto con color específico
         fig.add_trace(go.Scatter(x=driver_laps['LapNumber'], y=driver_laps['LapTimeSeconds'],
                                  mode='lines',
                                  name=f'{selected_driver} Line',
-                                 line=dict(color=piloto_color)))
+                                 line=dict(color=piloto_color, dash = dash)))
 
         # Superponer marcadores coloreados por compuesto de neumático
         for compound, group_data in driver_laps.groupby('Compound'):
@@ -410,7 +466,7 @@ def grafico_comparar_vueltas():
     return fig
 
 
-def grafico_comparar_desgaste(session):
+def grafico_comparar_desgaste(session, year):
     # Preparación del entorno de matplotlib
     #fastf1.plotting.setup_mpl(mpl_timedelta_support=False, misc_mpl_mods=False)
 
@@ -425,7 +481,11 @@ def grafico_comparar_desgaste(session):
     for abv in point_finishers:
         try:
             # Intenta obtener el color del piloto desde la configuración de fastf1
-            color = fastf1.plotting.DRIVER_COLORS[fastf1.plotting.DRIVER_TRANSLATE[abv]]
+            #color = fastf1.plotting.DRIVER_COLORS[fastf1.plotting.DRIVER_TRANSLATE[abv]]
+            color = plotting.get_driver_color(abv, session)
+
+            # Obtener el estilo de línea del diccionario
+            dash = driver_dash_styles.get(year, {}).get(abv, 'solid')
         except KeyError:
             # Si el piloto no tiene un color asignado, genera uno aleatorio
             color = next(fallback_colors)
@@ -474,7 +534,8 @@ def grafico_comparar_desgaste(session):
     for abv in no_point_finishers:
         try:
             # Intenta obtener el color del piloto desde la configuración de fastf1
-            color = fastf1.plotting.DRIVER_COLORS[fastf1.plotting.DRIVER_TRANSLATE[abv]]
+            #color = fastf1.plotting.DRIVER_COLORS[fastf1.plotting.DRIVER_TRANSLATE[abv]]
+            color = plotting.get_driver_color(abv, session)
         except KeyError:
             # Si el piloto no tiene un color asignado, genera uno aleatorio
             color = next(fallback_colors)
@@ -596,7 +657,7 @@ def grafico_vel_media_equipo(session):
     for team in team_order:
         try:
             # Intenta obtener el color del equipo usando fastf1
-            color = fastf1.plotting.team_color(team)
+            color = fastf1.plotting.get_team_color(team, session)
             if color == "none":  # Verificar si el color es "none"
                 raise KeyError  # Forzar el uso del color de fallback
         except KeyError:

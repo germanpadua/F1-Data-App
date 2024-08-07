@@ -82,7 +82,7 @@ def mostrar_analisis():
                     drivers = session.laps['Driver'].unique()
                     selected_drivers = st.multiselect('Selecciona pilotos para comparar', drivers, default=drivers[:1])
                     if selected_drivers:
-                        fig = grafico_tiempos_vuelta(session, selected_drivers)
+                        fig = grafico_tiempos_vuelta(session, year, selected_drivers)
                         st.plotly_chart(fig)
                     else:
                         st.warning("Por favor, selecciona al menos un piloto.")
@@ -91,7 +91,7 @@ def mostrar_analisis():
 
             elif opcion_grafico == 'Velocidad en carrera':
                 if not session.laps.empty:
-                    fig1, fig2 = grafico_comparar_desgaste(session)
+                    fig1, fig2 = grafico_comparar_desgaste(session, year)
                     st.pyplot(fig1)
                     st.pyplot(fig2)
 
