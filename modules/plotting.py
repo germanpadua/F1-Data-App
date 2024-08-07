@@ -148,6 +148,7 @@ def grafico_clasificacion(session):
     sorted_results = filtered_results.sort_values(by='BestQualifyingTime').reset_index(drop=True)
 
     pole_time = sorted_results.iloc[0]['BestQualifyingTime']
+    
     sorted_results['TimeDelta'] = (sorted_results['BestQualifyingTime'] - pole_time).dt.total_seconds()
 
      # Genera colores para cada equipo utilizando una paleta más grande para evitar duplicados
@@ -199,17 +200,20 @@ def grafico_delta_vs_distancia(comparacion):
     #comparacion['DeltaSuavizado'] = (comparacion['DeltaTiempo'].dt.total_seconds()).rolling(window=5, center=True).mean()
 
     # O aplicar un filtro Savitzky-Golay para suavizar los datos
-    comparacion['DeltaSuavizado'] = savgol_filter(comparacion['DeltaTiempo'].dt.total_seconds(), 51, 3) # window_size 51, polynomial order 3
+    #comparacion['DeltaSuavizado'] = savgol_filter(comparacion['DeltaTiempo'].dt.total_seconds(), 51, 3) # window_size 51, polynomial order 3
     # Dibujar el gráfico de línea con la diferencia de tiempo
-    ax.plot(comparacion['Distance'], comparacion['DeltaSuavizado'], label='Delta Tiempo')
+    # Pasar DeltaTiempo a segundos para facilitar la visualización
+    comparacion['DeltaTiempoSec'] = comparacion['DeltaTiempo'].dt.total_seconds()
+
+    ax.plot(comparacion['Distance'], comparacion['DeltaTiempoSec'], label='Delta Tiempo')
 
     # Establecer etiquetas y título
     ax.set_xlabel('Distancia (m)')
     ax.set_ylabel('Delta (s)')
-    ax.set_title('Delta de Tiempo (Suavizado) a lo largo de la Vuelta')
+    ax.set_title('Delta de Tiempo a lo largo de la Vuelta')
 
-    # Opcional: establecer límites para el eje Y si es necesario
-    # ax.set_ylim(-1, 1)
+    maxabs = max(abs(comparacion['DeltaTiempoSec'].min()), abs(comparacion['DeltaTiempoSec'].max()))
+    ax.set_ylim(-maxabs * 1.5, maxabs * 1.5)
 
     # Opcional: añadir una línea horizontal en y=0 para claridad
     ax.axhline(0, color='black', linewidth=0.5, linestyle='--')
@@ -239,21 +243,58 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
     results['BestQualifyingTime'] = results.apply(get_best_qualifying_time, axis=1)
     tiempo_final_piloto1 = results.loc[results['Abbreviation'] == piloto1, 'BestQualifyingTime'].iloc[0]
     tiempo_final_piloto2 = results.loc[results['Abbreviation'] == piloto2, 'BestQualifyingTime'].iloc[0]
+    
+    tiempo_final_pole = results.loc[results['Position'] == 1, 'BestQualifyingTime'].iloc[0]
 
     # Identificar la vuelta que corresponde a este mejor tiempo de clasificación
     vuelta_final_piloto1 = session.laps.pick_driver(piloto1)[session.laps['LapTime'] == tiempo_final_piloto1].iloc[0]
     vuelta_final_piloto2 = session.laps.pick_driver(piloto2)[session.laps['LapTime'] == tiempo_final_piloto2].iloc[0]
 
+    vuelta_final_pole = session.laps.pick_driver(results.loc[results['Position'] == 1, 'Abbreviation'].iloc[0])[session.laps['LapTime'] == tiempo_final_pole].iloc[0]
+    
+    
     # Obtener telemetría para las vueltas finales de clasificación
     tel_piloto1 = vuelta_final_piloto1.get_telemetry().add_distance()
     tel_piloto2 = vuelta_final_piloto2.get_telemetry().add_distance()
 
+    tel_pole = vuelta_final_pole.get_telemetry().add_distance()
+    
+    # Strech or contract the distances to match the pole lap
+    tel_piloto1['Distance'] = tel_piloto1['Distance'] * tel_pole['Distance'].max() / tel_piloto1['Distance'].max()
+    tel_piloto2['Distance'] = tel_piloto2['Distance'] * tel_pole['Distance'].max() / tel_piloto2['Distance'].max()
+    
+    
+    # Use linear interpolation to align each data object with the data objects in the fastest lap
+    tel_piloto1['TimeInSeconds'] = tel_piloto1['Time'].dt.total_seconds()
+    tel_piloto2['TimeInSeconds'] = tel_piloto2['Time'].dt.total_seconds()
+    tel_pole['TimeInSeconds'] = tel_pole['Time'].dt.total_seconds()
+
+    # Interpolar los datos de telemetría para piloto1 basándose en las distancias normalizadas de la vuelta en pole
+    interpolated_time_piloto1 = np.interp(
+        tel_pole['Distance'],  # Distancias de la vuelta de referencia (pole)
+        tel_piloto1['Distance'],  # Distancias actuales del piloto1
+        tel_piloto1['TimeInSeconds'])  # Tiempos actuales del piloto1
+
+    # Interpolar los datos de telemetría para piloto2 basándose en las distancias normalizadas de la vuelta en pole
+    interpolated_time_piloto2 = np.interp(
+        tel_pole['Distance'],  # Distancias de la vuelta de referencia (pole)
+        tel_piloto2['Distance'],  # Distancias actuales del piloto2
+        tel_piloto2['TimeInSeconds'])  # Tiempos actuales del piloto2
+
+    # Ahora, tienes los tiempos interpolados para cada piloto basados en la distancia de la vuelta en pole
+    # Puedes añadir estos tiempos interpolados de vuelta a los DataFrames de telemetría si es necesario
+
+    # Opcional: Convertir los tiempos interpolados de vuelta a timedelta para mantener la consistencia con el formato original
+    #tel_piloto1['InterpolatedTime'] = pd.to_timedelta(tel_piloto1['InterpolatedTime'], unit='s')
+    #tel_piloto2['InterpolatedTime'] = pd.to_timedelta(tel_piloto2['InterpolatedTime'], unit='s')
+        
+    
     # Realizar una unión asof para comparar las vueltas basándose en la distancia
     comparacion = pd.merge_asof(tel_piloto1, tel_piloto2, on='Distance', suffixes=('_piloto1', '_piloto2'), direction='nearest')
-
+    
     # Calcular la diferencia de tiempo en cada punto de la vuelta
-    comparacion['DeltaTiempo'] = comparacion['Time_piloto1'] - comparacion['Time_piloto2']
-
+    comparacion['DeltaTiempo'] = interpolated_time_piloto1 - interpolated_time_piloto2
+    comparacion['DeltaTiempo'] = pd.to_timedelta(comparacion['DeltaTiempo'], unit='s')
     x = comparacion['X_piloto1']              # values for x-axis
     y = comparacion['Y_piloto1']              # values for y-axis
     color = comparacion['DeltaTiempo'].dt.total_seconds()     # value to base color gradient on
@@ -279,9 +320,10 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
     ax.set_aspect('equal')
     
     # Create a continuous norm to map from data points to colors
-    
-    #norm = mpl.colors.TwoSlopeNorm(vmin=-absmax, vcenter=0.0, vmax=absmax)
-    norm = mpl.colors.TwoSlopeNorm(vmin=color.min(), vcenter=0.0, vmax=color.max())
+    absmax = max(abs(color.min()), abs(color.max()))
+    print(absmax)
+    norm = mpl.colors.TwoSlopeNorm(vmin=-absmax, vcenter=0.0, vmax=absmax)
+    #norm = mpl.colors.TwoSlopeNorm(vmin=min, vcenter=0.0, vmax=max)
     #norm = mpl.colors.SymLogNorm(linthresh=0.05, vmin=-absmax, vmax=absmax)
     lc = LineCollection(segments, cmap=colormap, norm=norm,
                         linestyle='-', linewidth=5)
@@ -308,8 +350,8 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
     # Finally, we create a color bar as a legend.
     cbaxes = fig.add_axes([0.25, 0.05, 0.5, 0.05])
     
-    #normlegend = mpl.colors.TwoSlopeNorm(vmin=-absmax, vcenter=0.0, vmax=absmax)
-    normlegend = mpl.colors.TwoSlopeNorm(vmin=color.min(), vcenter=0.0, vmax=color.max())
+    normlegend = mpl.colors.TwoSlopeNorm(vmin=-absmax, vcenter=0.0, vmax=absmax)
+    #normlegend = mpl.colors.TwoSlopeNorm(vmin=color.min(), vcenter=0.0, vmax=color.max())
     #normlegend = mpl.colors.SymLogNorm(linthresh=0.003, vmin=-absmax, vmax=absmax)
     legend = mpl.colorbar.ColorbarBase(cbaxes, norm=normlegend, cmap=colormap,
                                     orientation="horizontal")
