@@ -50,7 +50,7 @@ def mostrar_analisis():
         if analisis_seleccionado == 'Qualy':
             session = cargar_datos_de_sesion(year, gp_selected, 'Q')
             if not session.laps.empty:
-                fig = grafico_clasificacion(session)
+                fig = grafico_clasificacion(session, year)
                 st.plotly_chart(fig)
                 
                 drivers = session.laps['Driver'].unique()

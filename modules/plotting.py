@@ -193,7 +193,7 @@ def get_best_qualifying_time(row):
     return pd.NaT
 
 
-def grafico_clasificacion(session):
+def grafico_clasificacion(session, year):
     # Asegúrate de cargar los datos de la sesión
     session.load()
     
@@ -215,7 +215,7 @@ def grafico_clasificacion(session):
         team_name = lap['TeamName']
         if team_name not in team_colors_map:
             try:
-                color = fastf1.plotting.team_color(team_name)
+                color = fastf1.plotting.get_team_color(team_name, session)
             except KeyError:
                 color = next(fallback_colors)
                 color = to_hex(color)
@@ -227,7 +227,7 @@ def grafico_clasificacion(session):
 
     team_colors = [team_colors_map[lap['TeamName']] for _, lap in sorted_results.iterrows()]
 
-
+    
 
     # Construye el gráfico
     fig = go.Figure()
@@ -247,6 +247,8 @@ def grafico_clasificacion(session):
     )
 
     return fig
+
+
 
 def grafico_delta_vs_distancia(comparacion):
     # Crear la figura y el eje
