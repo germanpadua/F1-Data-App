@@ -252,9 +252,9 @@ def grafico_clasificacion(session, year):
 
 
 
-def grafico_delta_vs_distancia(comparacion):
+#def grafico_delta_vs_distancia(comparacion):
     # Crear la figura y el eje
-    fig, ax = plt.subplots(figsize=(15, 5))
+#    fig, ax = plt.subplots(figsize=(15, 5))
 
     # Aplicar un filtro de media móvil
     #comparacion['DeltaSuavizado'] = (comparacion['DeltaTiempo'].dt.total_seconds()).rolling(window=5, center=True).mean()
@@ -263,32 +263,33 @@ def grafico_delta_vs_distancia(comparacion):
     #comparacion['DeltaSuavizado'] = savgol_filter(comparacion['DeltaTiempo'].dt.total_seconds(), 51, 3) # window_size 51, polynomial order 3
     # Dibujar el gráfico de línea con la diferencia de tiempo
     # Pasar DeltaTiempo a segundos para facilitar la visualización
-    comparacion['DeltaTiempoSec'] = comparacion['DeltaTiempo'].dt.total_seconds()
+#    comparacion['DeltaTiempoSec'] = comparacion['DeltaTiempo'].dt.total_seconds()
 
-    ax.plot(comparacion['Distance'], comparacion['DeltaTiempoSec'], label='Delta Tiempo')
+#    ax.plot(comparacion['Distance'], comparacion['DeltaTiempoSec'], label='Delta Tiempo')
 
     # Establecer etiquetas y título
-    ax.set_xlabel('Distancia (m)')
-    ax.set_ylabel('Delta (s)')
-    ax.set_title('Delta de Tiempo a lo largo de la Vuelta')
+#    ax.set_xlabel('Distancia (m)')
+#    ax.set_ylabel('Delta (s)')
+#    ax.set_title('Delta de Tiempo a lo largo de la Vuelta')
 
-    maxabs = max(abs(comparacion['DeltaTiempoSec'].min()), abs(comparacion['DeltaTiempoSec'].max()))
-    ax.set_ylim(-maxabs * 1.5, maxabs * 1.5)
+#    maxabs = max(abs(comparacion['DeltaTiempoSec'].min()), abs(comparacion['DeltaTiempoSec'].max()))
+#    ax.set_ylim(-maxabs * 1.5, maxabs * 1.5)
 
     # Opcional: añadir una línea horizontal en y=0 para claridad
-    ax.axhline(0, color='black', linewidth=0.5, linestyle='--')
+#    ax.axhline(0, color='black', linewidth=0.5, linestyle='--')
 
     # Añadir leyenda
-    ax.legend()
+#    ax.legend()
 
     # Añadir una rejilla
-    ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+#    ax.grid(True, which='both', linestyle='--', linewidth=0.5)
 
     # Ajustar la trama y guardar o mostrar el gráfico
-    plt.tight_layout()
+#    plt.tight_layout()
     # plt.show()  # Mostrar la imagen en un entorno interactivo
 
-    return fig
+#    return fig
+
 
 def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
     colormap = mpl.cm.PiYG
@@ -337,7 +338,8 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
 
     titulo = f'Comparativa de Qualy: {piloto1} (Fucsia) vs {piloto2} (Verde)'
 
-    fig, ax = plt.subplots(figsize=(12, 6.75))  # Eliminando sharex y sharey
+    # Crear el gráfico sin recursión
+    fig, ax = plt.subplots(figsize=(12, 6.75))
     fig.suptitle(titulo, size=24, y=0.97)
     plt.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.12)
     ax.axis('off')
@@ -368,6 +370,24 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
 
     fig2 = grafico_delta_vs_distancia(comparacion)
     return fig, fig2
+
+def grafico_delta_vs_distancia(comparacion):
+    fig, ax = plt.subplots(figsize=(15, 5))
+    comparacion['DeltaTiempoSec'] = comparacion['DeltaTiempo'].dt.total_seconds()
+    ax.plot(comparacion['Distance'], comparacion['DeltaTiempoSec'], label='Delta Tiempo')
+    ax.set_xlabel('Distancia (m)')
+    ax.set_ylabel('Delta (s)')
+    ax.set_title('Delta de Tiempo a lo largo de la Vuelta')
+
+    maxabs = max(abs(comparacion['DeltaTiempoSec'].min()), abs(comparacion['DeltaTiempoSec'].max()))
+    ax.set_ylim(-maxabs * 1.5, maxabs * 1.5)
+
+    ax.axhline(0, color='black', linewidth=0.5, linestyle='--')
+    ax.legend()
+    ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+    plt.tight_layout()
+
+    return fig
 
 
 

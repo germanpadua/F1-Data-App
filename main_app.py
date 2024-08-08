@@ -2,19 +2,16 @@ import os
 import streamlit as st
 import fastf1
 import pandas as pd
-from datetime import datetime, timedelta
-from modules.data_loading import cargar_datos_de_sesion, obtener_calendario
-from modules.plotting import grafico_posiciones, grafico_tiempos_vuelta, grafico_clasificacion, grafico_comparar_vueltas, grafico_comparar_vueltas_en_mapa, grafico_comparar_desgaste, mostrar_mapa_circuito, grafico_vel_media_equipo
+from datetime import datetime
+from modules.data_loading import cargar_datos_de_sesion, obtener_calendario, cargar_mapa_circuito
+from modules.plotting import (grafico_posiciones, grafico_tiempos_vuelta, grafico_clasificacion, 
+                              grafico_comparar_vueltas_en_mapa, grafico_comparar_desgaste, 
+                              mostrar_mapa_circuito, grafico_vel_media_equipo)
 from modules.utils import configurar_cache
 import requests
 from streamlit_globe import streamlit_globe
 import folium
 from streamlit_folium import st_folium
-import matplotlib.pyplot as plt
-from fastf1 import plotting
-import numpy as np
-import plotly.express as px
-from modules.data_loading import guardar_datos_mapa, cargar_datos_de_sesion, cargar_mapa_circuito
 
 def obtener_coordenadas_osm(query):
     nominatim_url = "https://nominatim.openstreetmap.org/search"
@@ -104,11 +101,9 @@ def mostrar_analisis():
         else:
             st.warning(f"Análisis de {analisis_seleccionado} no disponible.")
 
-    
 # Inicialización y configuración de la cache
 cache_dir = 'cache'
 configurar_cache(cache_dir)
-
 
 st.title('Análisis de Fórmula 1')
 
@@ -235,5 +230,3 @@ if fechas:
     mostrar_analisis()
 else:
     st.write("No se ha definido 'fechas'. Verifica el formato del evento.")
-
-
