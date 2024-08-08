@@ -21,10 +21,8 @@ from scipy.signal import savgol_filter
 import pickle
 import os
 
-if not hasattr(st.session_state, 'mpl_setup_done'):
-    fastf1.plotting.setup_mpl()
-    st.session_state.mpl_setup_done = True
-
+fastf1.plotting.setup_mpl()
+ 
 driver_dash_styles = {
     2024: {
         'VER': 'solid',
@@ -187,6 +185,7 @@ def grafico_tiempos_vuelta(session, year, selected_drivers):
     return fig
 
 import pandas as pd
+
 def get_best_qualifying_time(row):
     # Esta función busca el mejor tiempo de clasificación priorizando Q3, luego Q2 y finalmente Q1.
     for q in ['Q3', 'Q2', 'Q1']:
@@ -338,12 +337,7 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
 
     titulo = f'Comparativa de Qualy: {piloto1} (Fucsia) vs {piloto2} (Verde)'
 
-    # Deshabilitar temporalmente la personalización de fastf1.plotting para evitar recursión
-    original_subplots = plt.subplots
-    plt.subplots = mpl.pyplot.subplots
-
     fig, ax = plt.subplots(figsize=(12, 6.75))
-    plt.subplots = original_subplots  # Restaurar después de crear el gráfico
 
     fig.suptitle(titulo, size=24, y=0.97)
     plt.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.12)
