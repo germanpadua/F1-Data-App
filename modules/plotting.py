@@ -7,7 +7,7 @@ from fastf1.core import Laps
 from timple.timedelta import strftimedelta
 from matplotlib.collections import LineCollection
 import matplotlib as mpl
-from matplotlib import pyplot as plt
+import matplotlib.pyplot as plt
 import pandas as pd
 import itertools
 import seaborn as sns
