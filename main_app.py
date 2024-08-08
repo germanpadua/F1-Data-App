@@ -7,6 +7,7 @@ from modules.data_loading import cargar_datos_de_sesion, obtener_calendario, car
 from modules.plotting import (grafico_posiciones, grafico_tiempos_vuelta, grafico_clasificacion, 
                               grafico_comparar_vueltas_en_mapa, grafico_comparar_desgaste, 
                               mostrar_mapa_circuito, grafico_vel_media_equipo)
+
 from modules.utils import configurar_cache
 import requests
 from streamlit_globe import streamlit_globe
