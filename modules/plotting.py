@@ -21,6 +21,8 @@ from scipy.signal import savgol_filter
 import pickle
 import os
 
+fastf1.plotting.setup_mpl()  # Necesario para inicializar los colores de compuestos, si no se ha llamado antes
+
 
 driver_dash_styles = {
     2024: {
@@ -116,7 +118,6 @@ def grafico_posiciones(session, gp_selected, year):
 
     return fig
 
-fastf1.plotting.setup_mpl()  # Necesario para inicializar los colores de compuestos, si no se ha llamado antes
 
 def format_func(value, tick_number):
         minutes = int(value // 60)
@@ -425,7 +426,6 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
 
 def grafico_comparar_vueltas():
     # Configurar el esquema de colores para la trama
-    fastf1.plotting.setup_mpl()
 
     # Cargar la sesión
     session = fastf1.get_session(2023, 'Bahrain Grand Prix', 'Q')
