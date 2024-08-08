@@ -355,11 +355,13 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
     ax.annotate('', xy=(x.iloc[1], y.iloc[1]), xytext=(x.iloc[0], y.iloc[0]),
                 arrowprops=dict(facecolor='gold', edgecolor='gold', arrowstyle='simple', lw=5),
                 annotation_clip=False)
+
     ax.text(x.iloc[0] - 300, y.iloc[0], 'Inicio de la vuelta', color='gold', ha='right', va='top')
 
     cbaxes = fig.add_axes([0.25, 0.05, 0.5, 0.05])
     normlegend = mpl.colors.TwoSlopeNorm(vmin=-absmax, vcenter=0.0, vmax=absmax)
     legend = mpl.colorbar.ColorbarBase(cbaxes, norm=normlegend, cmap=colormap, orientation="horizontal")
+
     plt.text(0.25, 0.11, piloto1 + ' por delante', transform=fig.transFigure, color='fuchsia', ha='left')
     plt.text(0.75, 0.11, piloto2 + ' por delante', transform=fig.transFigure, color='green', ha='right')
 
