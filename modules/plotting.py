@@ -336,7 +336,13 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
 
     titulo = f'Comparativa de Qualy: {piloto1} (Fucsia) vs {piloto2} (Verde)'
 
-    fig, ax = plt.subplots(sharex=True, sharey=True, figsize=(12, 6.75))
+    # Ajuste aquí para evitar posibles recursiones
+    try:
+        fig, ax = plt.subplots(sharex=True, sharey=True, figsize=(12, 6.75))
+    except RecursionError:
+        plt.close('all')
+        fig, ax = plt.subplots(sharex=True, sharey=True, figsize=(12, 6.75))
+
     fig.suptitle(titulo, size=24, y=0.97)
     plt.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.12)
     ax.axis('off')
