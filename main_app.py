@@ -49,6 +49,7 @@ def mostrar_analisis():
     if f'mostrar_analisis_{analisis_seleccionado}' in st.session_state and st.session_state[f'mostrar_analisis_{analisis_seleccionado}']:
         if analisis_seleccionado == 'Qualy':
             session = cargar_datos_de_sesion(year, gp_selected, 'Q')
+            session.load(laps=True, telemetry=True, weather=True)
             if not session.laps.empty:
                 fig = grafico_clasificacion(session, year)
                 st.plotly_chart(fig)
@@ -65,6 +66,7 @@ def mostrar_analisis():
                 st.error("No se encontraron datos para esta sesión.")
         elif analisis_seleccionado == 'Carrera':
             session = cargar_datos_de_sesion(year, gp_selected, 'R')
+            session.load(laps=True, telemetry=True, weather=True)
             opcion_grafico = st.selectbox(
                 "Elige una opción de análisis:",
                 ('Evolución de las posiciones', 'Tiempos de vuelta','Velocidad en carrera'),
@@ -160,6 +162,7 @@ if st.checkbox("Mostrar información adicional del circuito"):
                         circuito = cargar_mapa_circuito("data/circuit_image/" + gp_selected + ".png")
                     else:
                         session = cargar_datos_de_sesion(years, gp_selected, 'R')
+                        session.load(laps=True, telemetry=True, weather=True)
                         lap = session.laps.pick_fastest()
                         pos = lap.get_pos_data()
                         circuit_info = session.get_circuit_info()
