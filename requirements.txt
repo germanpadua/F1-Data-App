@@ -1,4 +1,4 @@
-streamlit
+streamlit==1.4.0
 fastf1
 matplotlib
 pandas
@@ -9,4 +9,3 @@ streamlit-folium
 colour
 seaborn
 scipy
-streamlit-autorefresh
