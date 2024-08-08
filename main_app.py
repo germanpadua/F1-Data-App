@@ -12,7 +12,6 @@ import requests
 from streamlit_globe import streamlit_globe
 import folium
 from streamlit_folium import st_folium
-from streamlit_autorefresh import st_autorefresh
 
 def obtener_coordenadas_osm(query):
     nominatim_url = "https://nominatim.openstreetmap.org/search"
@@ -107,9 +106,6 @@ cache_dir = 'cache'
 configurar_cache(cache_dir)
 
 st.title('Análisis de Fórmula 1')
-
-# Autorefresh cada 2 segundos
-st_autorefresh(interval=2000, limit=100, key="analisis_autorefresh")
 
 # Paso 1: Selección del año
 st.header("Selecciona el Año y el Circuito")
