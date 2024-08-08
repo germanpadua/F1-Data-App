@@ -338,43 +338,9 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
 
     titulo = f'Comparativa de Qualy: {piloto1} (Fucsia) vs {piloto2} (Verde)'
 
-    # Crear el gráfico sin recursión
-    original_subplots = plt.subplots
-    plt.subplots = mpl.pyplot.subplots
-
-    fig, ax = plt.subplots(figsize=(12, 6.75))
-    plt.subplots = original_subplots  # Restaurar después de crear el gráfico
-
-    fig.suptitle(titulo, size=24, y=0.97)
-    plt.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.12)
-    ax.axis('off')
-
-    ax.plot(x, y, color='black', linestyle='-', linewidth=16, zorder=0)
-    ax.set_aspect('equal')
-
-    absmax = max(abs(color.min()), abs(color.max()))
-    norm = mpl.colors.TwoSlopeNorm(vmin=-absmax, vcenter=0.0, vmax=absmax)
-    lc = LineCollection(segments, cmap=colormap, norm=norm, linestyle='-', linewidth=5)
-    lc.set_array(color)
-    ax.add_collection(lc)
-
-    dx = x.iloc[1] - x.iloc[0]
-    dy = y.iloc[1] - y.iloc[0]
-    ax.annotate('', xy=(x.iloc[1], y.iloc[1]), xytext=(x.iloc[0], y.iloc[0]),
-                arrowprops=dict(facecolor='gold', edgecolor='gold', arrowstyle='simple', lw=5),
-                annotation_clip=False)
-
-    ax.text(x.iloc[0] - 300, y.iloc[0], 'Inicio de la vuelta', color='gold', ha='right', va='top')
-
-    cbaxes = fig.add_axes([0.25, 0.05, 0.5, 0.05])
-    normlegend = mpl.colors.TwoSlopeNorm(vmin=-absmax, vcenter=0.0, vmax=absmax)
-    legend = mpl.colorbar.ColorbarBase(cbaxes, norm=normlegend, cmap=colormap, orientation="horizontal")
-
-    plt.text(0.25, 0.11, piloto1 + ' por delante', transform=fig.transFigure, color='fuchsia', ha='left')
-    plt.text(0.75, 0.11, piloto2 + ' por delante', transform=fig.transFigure, color='green', ha='right')
-
+   
     fig2 = grafico_delta_vs_distancia(comparacion)
-    return fig, fig2
+    return fig2
 
 def grafico_delta_vs_distancia(comparacion):
     fig, ax = plt.subplots(figsize=(15, 5))
