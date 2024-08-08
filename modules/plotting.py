@@ -338,7 +338,7 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
 
     titulo = f'Comparativa de Qualy: {piloto1} (Fucsia) vs {piloto2} (Verde)'
 
-    # Crear el gráfico sin recursión
+    # Deshabilitar temporalmente la personalización de fastf1.plotting para evitar recursión
     original_subplots = plt.subplots
     plt.subplots = mpl.pyplot.subplots
 
@@ -393,7 +393,6 @@ def grafico_delta_vs_distancia(comparacion):
     plt.tight_layout()
 
     return fig
-
 
 
 def grafico_comparar_vueltas():
