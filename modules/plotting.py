@@ -62,7 +62,7 @@ def format_func(value, tick_number):
         seconds = int(value % 60)
         return f"{minutes}:{seconds:02d}"
     
-def grafico_tiempos_vuelta(session, selected_drivers):
+def grafico_tiempos_vuelta(session, selected_drivers, year):
     fig = go.Figure()
     # Definir una paleta de colores para los pilotos
     paleta_colores_pilotos = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
@@ -117,7 +117,7 @@ def get_best_qualifying_time(row):
         if pd.notna(row[q]):
             return row[q]
     return pd.NaT
-def grafico_clasificacion(session):
+def grafico_clasificacion(session, year):
     # Asegúrate de cargar los datos de la sesión
     session.load()
     
@@ -295,7 +295,7 @@ def grafico_comparar_vueltas():
     ax.legend()
     ax.set_title(f'Diferencia de tiempo entre {piloto1} y {piloto2}')
     return fig
-def grafico_comparar_desgaste(session):
+def grafico_comparar_desgaste(session, year):
     # Preparación del entorno de matplotlib
     #fastf1.plotting.setup_mpl(mpl_timedelta_support=False, misc_mpl_mods=False)
     # Obtener los pilotos que terminaron en los puntos y sus vueltas rápidas, excluyendo vueltas lentas
