@@ -291,7 +291,6 @@ def grafico_delta_vs_distancia(comparacion):
 
 def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
     # Configurar el esquema de colores para la trama
-    fastf1.plotting.setup_mpl()
 
     colormap = mpl.cm.PiYG
 
