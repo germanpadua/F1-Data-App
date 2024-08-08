@@ -20,6 +20,9 @@ from matplotlib.ticker import FuncFormatter
 from scipy.signal import savgol_filter
 import pickle
 import os
+
+fastf1.plotting.setup_mpl(mpl_timedelta_support=False, misc_mpl_mods=False)
+
 driver_dash_styles = {
     2024: {
         'VER': 'solid',
