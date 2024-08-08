@@ -21,8 +21,9 @@ from scipy.signal import savgol_filter
 import pickle
 import os
 
-fastf1.plotting.setup_mpl()  # Necesario para inicializar los colores de compuestos, si no se ha llamado antes
-
+if not hasattr(st.session_state, 'mpl_setup_done'):
+    fastf1.plotting.setup_mpl()
+    st.session_state.mpl_setup_done = True
 
 driver_dash_styles = {
     2024: {
@@ -336,13 +337,7 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
 
     titulo = f'Comparativa de Qualy: {piloto1} (Fucsia) vs {piloto2} (Verde)'
 
-    # Ajuste aquí para evitar posibles recursiones
-    try:
-        fig, ax = plt.subplots(sharex=True, sharey=True, figsize=(12, 6.75))
-    except RecursionError:
-        plt.close('all')
-        fig, ax = plt.subplots(sharex=True, sharey=True, figsize=(12, 6.75))
-
+    fig, ax = plt.subplots(figsize=(12, 6.75))  # Eliminando sharex y sharey
     fig.suptitle(titulo, size=24, y=0.97)
     plt.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.12)
     ax.axis('off')
