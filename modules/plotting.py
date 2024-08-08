@@ -148,24 +148,7 @@ def grafico_tiempos_vuelta(session, year, selected_drivers):
                                      marker=dict(color=color, size=6, line=dict(color="white", width=0.5)),
                                      legendgroup=selected_driver))
 
-    # Definir la función de formato de tiempo
-
-    
-          
-            
-    
-
-          
-          Expand Down
-          
-            
-    
-
-          
-          Expand Up
-    
-    @@ -512,7 +512,8 @@ def grafico_comparar_desgaste(session, year):
-  
+    # Definir la función de formato de tiempo  
     def format_time(seconds):
         minutes = int(seconds // 60)
         seconds_remainder = seconds % 60
@@ -446,18 +429,9 @@ def grafico_comparar_desgaste(session, year):
 
 
     # Ajustes estéticos del gráfico
-    ax.set_xlabel("Driver")
-
-    
-          
-            
+    ax.set_xlabel("Driver")    
     
 
-          
-          Expand Down
-    
-    
-  
     ax.set_ylabel("Lap Time (s)")
     plt.suptitle("Lap Time Distributions by Driver and Tyre Compound")
     # Mejora de la estética con despine
