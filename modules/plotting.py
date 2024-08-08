@@ -105,7 +105,7 @@ def grafico_posiciones(session, gp_selected, year):
                     legend_title='Piloto',
                     template='plotly_white')
     return fig
-fastf1.plotting.setup_mpl()  # Necesario para inicializar los colores de compuestos, si no se ha llamado antes
+
 def format_func(value, tick_number):
         minutes = int(value // 60)
         seconds = int(value % 60)
@@ -244,9 +244,9 @@ def grafico_delta_vs_distancia(comparacion):
     plt.tight_layout()
     # plt.show()  # Mostrar la imagen en un entorno interactivo
     return fig
+
 def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
     # Configurar el esquema de colores para la trama
-    fastf1.plotting.setup_mpl()
     colormap = mpl.cm.PiYG
     # Seleccionar los pilotos y obtener sus mejores vueltas de telemetría
     # Obtener los resultados de la clasificación y los tiempos finales de clasificación para cada piloto
@@ -359,7 +359,6 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
     return fig, fig2
 def grafico_comparar_vueltas():
     # Configurar el esquema de colores para la trama
-    fastf1.plotting.setup_mpl()
     # Cargar la sesión
     session = fastf1.get_session(2023, 'Bahrain Grand Prix', 'Q')
     session.load()
@@ -388,6 +387,7 @@ def grafico_comparar_vueltas():
     ax.legend()
     ax.set_title(f'Diferencia de tiempo entre {piloto1} y {piloto2}')
     return fig
+
 def grafico_comparar_desgaste(session, year):
     # Preparación del entorno de matplotlib
     #fastf1.plotting.setup_mpl(mpl_timedelta_support=False, misc_mpl_mods=False)
