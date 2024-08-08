@@ -54,7 +54,7 @@ def mostrar_analisis():
                 drivers = session.laps['Driver'].unique()
                 selected_drivers = st.multiselect('Selecciona dos pilotos para comparar', drivers, default=(drivers[:1], drivers[1:2]))
                 if len(selected_drivers) == 2:
-                    fig2, fig3 = grafico_comparar_vueltas_en_mapa(session, selected_drivers[0], selected_drivers[1])
+                    fig3 = grafico_comparar_vueltas_en_mapa(session, selected_drivers[0], selected_drivers[1])
                     #st.pyplot(fig2)
                     st.pyplot(fig3)
                 else:
