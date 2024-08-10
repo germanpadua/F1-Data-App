@@ -20,6 +20,10 @@ from matplotlib.ticker import FuncFormatter
 from scipy.signal import savgol_filter
 import pickle
 import os
+from fastf1.ergast import Ergast
+import plotly.express as px
+import difflib
+
 
 fastf1.plotting.setup_mpl(mpl_timedelta_support=False, misc_mpl_mods=False)
 
@@ -588,3 +592,159 @@ def grafico_vel_media_equipo(session):
     ax.set(xlabel=None)
     plt.tight_layout()
     return fig
+
+
+def obtener_mejor_coincidencia(nombre, lista_nombres):
+    """
+    Encuentra la mejor coincidencia aproximada en una lista de nombres.
+    """
+    coincidencia = difflib.get_close_matches(nombre, lista_nombres, n=1, cutoff=0.6)
+    return coincidencia[0] if coincidencia else nombre
+
+def grafico_evolucion_campeonato(year):
+    with st.spinner('Cargando datos del campeonato...'):
+        # Obtén la información de la temporada
+        ergast = Ergast()
+        races = ergast.get_race_schedule(year)  # Carreras del año seleccionado
+        results = []
+
+        # Crea una sesión temporal para obtener los colores de los pilotos y equipos
+        temp_session = fastf1.get_session(year, races['round'][0], 'R')
+        driver_color_mapping = plotting.get_driver_color_mapping(temp_session)
+
+        # Obtener nombres de equipos para todos los pilotos en la sesión
+        teams_in_session = plotting.list_team_names(temp_session)
+
+        # Crear un mapeo de equipos a colores usando `get_team_color`
+        team_color_mapping = {team: plotting.get_team_color(team, temp_session) for team in teams_in_session}
+
+        # Recorre cada carrera en la temporada
+        race_names = []  # Lista para almacenar los nombres de las carreras en orden
+        for rnd, race in races['raceName'].items():
+            # Añade el nombre de la carrera a la lista
+            race_names.append(race.removesuffix(' Grand Prix'))
+
+            # Obtén los resultados de la carrera
+            temp = ergast.get_race_results(season=year, round=rnd + 1)
+            
+            if not temp.content:  # Verifica si la lista no está vacía
+                continue  # Salta a la siguiente iteración del bucle
+            
+            temp = temp.content[0]
+
+            # Verificar los nombres de las columnas y eliminar espacios en blanco
+            temp.columns = temp.columns.str.strip()
+
+            # Si hay un sprint, también obtén los resultados del sprint
+            sprint = ergast.get_sprint_results(season=year, round=rnd + 1)
+            if sprint.content and sprint.description['round'][0] == rnd + 1:
+                temp = pd.merge(temp, sprint.content[0], on='driverCode', how='left', suffixes=('', '_sprint'))
+                # Suma los puntos de la carrera y del sprint, si existen
+                if 'points_sprint' in temp.columns:
+                    temp['points'] = temp['points'] + temp['points_sprint']
+                temp.drop(columns=[col for col in temp.columns if col.endswith('_sprint')], inplace=True)
+
+            # Verificar si 'constructorName' está en las columnas después de la fusión
+            if 'constructorName' not in temp.columns:
+                st.warning(f"La columna 'constructorName' no está disponible después de procesar la carrera {race}. Se omitirá esta carrera en el análisis del campeonato de equipos.")
+                temp['constructorName'] = None  # Asigna un valor nulo si no está presente
+
+            # Aplicar coincidencia aproximada para emparejar nombres de equipos y constructores
+            temp['constructorName'] = temp['constructorName'].apply(lambda x: obtener_mejor_coincidencia(x, teams_in_session) if pd.notna(x) else None)
+
+            # Añade el número de ronda y el nombre del Gran Premio
+            temp['round'] = rnd + 1
+            temp['race'] = race.removesuffix(' Grand Prix')
+
+            # Conservar solo las columnas necesarias
+            temp = temp[['round', 'race', 'driverCode', 'constructorName', 'points']]  
+            results.append(temp)
+
+        # Combina los resultados en un solo dataframe
+        if results:
+            results = pd.concat(results)
+            
+            # ---- Gráfico de Evolución del Campeonato de Pilotos ----
+            results_pivot_drivers = results.pivot(index='driverCode', columns='round', values='points').fillna(0)
+            results_pivot_drivers.columns = race_names[:len(results_pivot_drivers.columns)]
+            results_pivot_drivers['total_points'] = results_pivot_drivers.sum(axis=1)
+            results_pivot_drivers = results_pivot_drivers.sort_values(by='total_points', ascending=False)
+            results_pivot_drivers.drop(columns='total_points', inplace=True)
+            results_cumulative_drivers = results_pivot_drivers.cumsum(axis=1)
+
+            fig_drivers = go.Figure()
+            for driver in results_cumulative_drivers.index:
+                piloto_color = driver_color_mapping.get(driver, 'gray')
+                dash_style = driver_dash_styles.get(year, {}).get(driver, 'solid')
+
+                fig_drivers.add_trace(go.Scatter(
+                    x=results_cumulative_drivers.columns,
+                    y=results_cumulative_drivers.loc[driver],
+                    mode='lines+markers',
+                    name=driver,
+                    line=dict(color=piloto_color, dash=dash_style)
+                ))
+
+            fig_drivers.update_layout(
+                title="Evolución del Campeonato de Pilotos",
+                xaxis_title="Carrera",
+                yaxis_title="Puntos Acumulados",
+                xaxis=dict(tickmode='linear'),
+                yaxis=dict(rangemode='tozero')
+            )
+
+            # ---- Gráfico de Evolución del Campeonato de Equipos ----
+            results_pivot_teams = results.groupby(['constructorName', 'round'])['points'].sum().unstack().fillna(0)
+            results_pivot_teams.columns = race_names[:len(results_pivot_teams.columns)]
+            results_pivot_teams['total_points'] = results_pivot_teams.sum(axis=1)
+            results_pivot_teams = results_pivot_teams.sort_values(by='total_points', ascending=False)
+            results_pivot_teams.drop(columns='total_points', inplace=True)
+            results_cumulative_teams = results_pivot_teams.cumsum(axis=1)
+
+            fig_teams = go.Figure()
+            for team in results_cumulative_teams.index:
+                team_color = team_color_mapping.get(team, 'gray')
+
+                fig_teams.add_trace(go.Scatter(
+                    x=results_cumulative_teams.columns,
+                    y=results_cumulative_teams.loc[team],
+                    mode='lines+markers',
+                    name=team,
+                    line=dict(color=team_color)
+                ))
+
+            fig_teams.update_layout(
+                title="Evolución del Campeonato de Equipos",
+                xaxis_title="Carrera",
+                yaxis_title="Puntos Acumulados",
+                xaxis=dict(tickmode='linear'),
+                yaxis=dict(rangemode='tozero')
+            )
+
+            # ---- Heatmap de Puntos de Pilotos ----
+            fig_heatmap = px.imshow(
+                results_pivot_drivers,
+                text_auto=True,
+                aspect='auto',
+                color_continuous_scale=[[0, 'rgb(198, 219, 239)'],
+                                        [0.25, 'rgb(107, 174, 214)'],
+                                        [0.5, 'rgb(33, 113, 181)'],
+                                        [0.75, 'rgb(8, 81, 156)'],
+                                        [1, 'rgb(8, 48, 107)']],
+                labels={'x': 'Carrera', 'y': 'Piloto', 'color': 'Puntos'}
+            )
+
+            fig_heatmap.update_xaxes(title_text='')
+            fig_heatmap.update_yaxes(title_text='')
+            fig_heatmap.update_yaxes(tickmode='linear')
+            fig_heatmap.update_yaxes(showgrid=True, gridwidth=1, gridcolor='LightGrey', showline=False, tickson='boundaries')
+            fig_heatmap.update_xaxes(showgrid=False, showline=False)
+            fig_heatmap.update_layout(plot_bgcolor='rgba(0,0,0,0)')
+            fig_heatmap.update_layout(coloraxis_showscale=False)
+            fig_heatmap.update_layout(xaxis=dict(side='top'))
+            fig_heatmap.update_layout(margin=dict(l=0, r=0, b=0, t=0))
+
+            return fig_drivers, fig_teams, fig_heatmap
+        else:
+            st.warning("No se encontraron datos suficientes para generar los gráficos.")
+            return None, None, None
