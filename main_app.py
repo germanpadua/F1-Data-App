@@ -6,13 +6,17 @@ from datetime import datetime
 from modules.data_loading import cargar_datos_de_sesion, obtener_calendario, cargar_mapa_circuito
 from modules.plotting import (grafico_posiciones, grafico_tiempos_vuelta, grafico_clasificacion, 
                               grafico_comparar_vueltas_en_mapa, grafico_comparar_desgaste, 
-                              mostrar_mapa_circuito, grafico_vel_media_equipo)
+                              mostrar_mapa_circuito, grafico_vel_media_equipo, grafico_evolucion_campeonato)
 
 from modules.utils import configurar_cache
 import requests
 from streamlit_globe import streamlit_globe
 import folium
 from streamlit_folium import st_folium
+
+
+from fastf1.ergast import Ergast
+import plotly.graph_objects as go
 
 def obtener_coordenadas_osm(query):
     nominatim_url = "https://nominatim.openstreetmap.org/search"
@@ -170,6 +174,16 @@ if st.checkbox("Mostrar información adicional del circuito"):
             if funciona:
                 break
 
+
+if st.checkbox("Mostrar evolución del campeonato de pilotos"):
+    fig1, fig2, fig3 = grafico_evolucion_campeonato(year)
+    
+    if fig1 is not None and fig2 is not None and fig3 is not None:
+        st.plotly_chart(fig1)
+        st.plotly_chart(fig2)
+        st.plotly_chart(fig3)
+        
+        
 if 'mostrar_analisis' not in st.session_state:
     st.session_state['mostrar_analisis'] = False
 
