@@ -8,7 +8,7 @@ from modules.plotting import (grafico_posiciones, grafico_tiempos_vuelta, grafic
                               grafico_comparar_vueltas_en_mapa, grafico_comparar_desgaste, 
                               mostrar_mapa_circuito, grafico_vel_media_equipo, grafico_evolucion_campeonato)
 
-from modules.utils import configurar_cache
+from modules.utils import configurar_cache, get_selectable_seasons
 import requests
 from streamlit_globe import streamlit_globe
 import folium
@@ -18,10 +18,25 @@ from streamlit_folium import st_folium
 from fastf1.ergast import Ergast
 import plotly.graph_objects as go
 
+# Circuit maps generated at runtime are written to cache/ (regenerable); the curated
+# assets under data/circuit_image/ are committed. Prefer whatever already exists so a
+# generated map is reused on later runs instead of being regenerated.
+CIRCUIT_IMAGE_DIRS = (os.path.join('cache', 'circuit_maps'), os.path.join('data', 'circuit_image'))
+
+
+def find_circuit_image(gp_name):
+    for directory in CIRCUIT_IMAGE_DIRS:
+        path = os.path.join(directory, gp_name + '.png')
+        if os.path.exists(path):
+            return path
+    return None
+
+
 def obtener_coordenadas_osm(query):
     nominatim_url = "https://nominatim.openstreetmap.org/search"
     parametros = {'q': query, 'format': 'json'}
-    response = requests.get(nominatim_url, params=parametros)
+    headers = {'User-Agent': 'F1-Data-App/1.0 (https://github.com/germanpadua/F1-Data-App)'}
+    response = requests.get(nominatim_url, params=parametros, headers=headers, timeout=10)
     if response.status_code == 200:
         resultados = response.json()
         if resultados:
@@ -51,7 +66,6 @@ def mostrar_analisis():
     if f'mostrar_analisis_{analisis_seleccionado}' in st.session_state and st.session_state[f'mostrar_analisis_{analisis_seleccionado}']:
         if analisis_seleccionado == 'Qualy':
             session = cargar_datos_de_sesion(year, gp_selected, 'Q')
-            session.load(laps=True, telemetry=True, weather=True)
             if not session.laps.empty:
                 fig = grafico_clasificacion(session, year)
                 st.plotly_chart(fig)
@@ -68,7 +82,6 @@ def mostrar_analisis():
                 st.error("No se encontraron datos para esta sesión.")
         elif analisis_seleccionado == 'Carrera':
             session = cargar_datos_de_sesion(year, gp_selected, 'R')
-            session.load(laps=True, telemetry=True, weather=True)
             opcion_grafico = st.selectbox(
                 "Elige una opción de análisis:",
                 ('Evolución de las posiciones', 'Tiempos de vuelta','Velocidad en carrera'),
@@ -114,7 +127,7 @@ st.title('Análisis de Fórmula 1')
 
 # Paso 1: Selección del año
 st.header("Selecciona el Año y el Circuito")
-years = [2020, 2021, 2022, 2023, 2024]
+years = get_selectable_seasons()
 current_year = datetime.now().year
 default_year_index = years.index(current_year) if current_year in years else len(years) - 1
 year = st.selectbox('Año', years, index=default_year_index)
@@ -149,30 +162,28 @@ if st.checkbox("Mostrar información adicional del circuito"):
     else:
         st.error('No se pudieron obtener las coordenadas del circuito seleccionado.')
         
-    if os.path.exists("data/circuit_image/" + gp_selected + ".png"):
-        circuito = cargar_mapa_circuito("data/circuit_image/" + gp_selected + ".png")
+    mapa_existente = find_circuit_image(gp_selected)
+    if mapa_existente:
+        circuito = cargar_mapa_circuito(mapa_existente)
         st.pyplot(circuito)
     else:
-        for years in range(2024, 2018, -1):
-            funciona = False
+        circuito_mostrado = False
+        for fallback_year in range(2024, 2018, -1):
             try:
-                schedule = obtener_calendario(years)
+                schedule = obtener_calendario(fallback_year)
                 if gp_selected in schedule['EventName'].unique():
-                    if os.path.exists("data/circuit_image/" + gp_selected + ".png"):
-                        circuito = cargar_mapa_circuito("data/circuit_image/" + gp_selected + ".png")
-                    else:
-                        session = cargar_datos_de_sesion(years, gp_selected, 'R')
-                        session.load(laps=True, telemetry=True, weather=True)
-                        lap = session.laps.pick_fastest()
-                        pos = lap.get_pos_data()
-                        circuit_info = session.get_circuit_info()
-                        circuito = mostrar_mapa_circuito(lap, pos, circuit_info, session.event['EventName'])
+                    session = cargar_datos_de_sesion(fallback_year, gp_selected, 'R')
+                    lap = session.laps.pick_fastest()
+                    pos = lap.get_pos_data()
+                    circuit_info = session.get_circuit_info()
+                    circuito = mostrar_mapa_circuito(lap, pos, circuit_info, session.event['EventName'])
                     st.pyplot(circuito)
-                    funciona = True
+                    circuito_mostrado = True
+                    break
             except Exception as e:
-                print(f"No se pudo cargar los datos para el año {years}: {e}")
-            if funciona:
-                break
+                print(f"No se pudo cargar los datos para el año {fallback_year}: {e}")
+        if not circuito_mostrado:
+            st.error(f"No hay mapa de circuito disponible para {gp_selected} en ninguna temporada.")
 
 
 if st.checkbox("Mostrar evolución del campeonato de pilotos"):
