@@ -88,11 +88,14 @@ Guard: Phase 0 must not grow into a full refactor. Scope is limited to the seven
   the known limitations, and an explicit answer to the Vercel question. Plus `.streamlit/config.toml`.
   Verified: TOML parses, and `streamlit run main_app.py` boots and answers
   `GET /_stcore/health` with HTTP 200 `ok`.
-- [ ] **T7 — [BLOCKED — REQUIRES EXPLICIT USER APPROVAL] Git history purge.** Rewrite history to
-  remove `cache/` and `circuito_prueba` blobs (`git-filter-repo`), reducing `.git` from 733 MB.
-  This is destructive and requires a coordinated force push. Do not start without an explicit,
-  in-session go-ahead from the user.
-  Evidence: `du -sh .git` after purge; `git log --oneline` sanity check.
+- [ ] **T7 — Git history purge.** AUTHORIZED by the user on 2026-10-03 ("purge it if you can").
+  Rewrite history with `git-filter-repo` to drop every `cache/` and `circuito_prueba` blob,
+  reducing `.git` from 733 MB, then force push. A backup bundle is written outside the repository
+  before the rewrite. Evidence: `du -sh .git` after purge; `git log --oneline` sanity check.
+- [x] **T8 — Close the three native-review findings.** DONE (commit `d1ac7a0`). See the review record
+  below. Verified: the 2026 per-round totals still match the API exactly, the all-rounds-fail path
+  returns `(None, None, None)` without raising, and an injected empty round 8 no longer truncates
+  the season.
 
 ## Deferred to Phase 1 / Phase 2: race replay (user request, 2026-10-03)
 
@@ -155,6 +158,38 @@ is the variant to avoid.
 Under the full scope, the Streamlit path is definitively not viable for layers 1-3. Phase 2 is the
 web frontend, reusing the `telemetry-sentinel` `web/` skeleton.
 
+## Native review record
+
+The phase-0 candidate went through the native review lifecycle on 2026-10-03.
+
+| Field | Value |
+|---|---|
+| Lineage | `review-0456e121dbf4dd72` |
+| Target identity | `sha256:7cfd3fbd8bee3ecb8c843cd9d3c20db883c9d4db054f2dc0e5b4e402670d6306` |
+| Base tree / candidate tree | `81300c3b48992c7d34d69076ae2fe9f33add213c` / `89dbdb88aeedf17b4a5dc0a6b218b69e9c1a0a58` |
+| Frozen revision (approved) | `sha256:548408359bfd443e17373240154d73d81c97801dabb61ee4f847ae76be3f2204` |
+| Tier / lenses | medium / `review-reliability` |
+| Changed lines / correction budget | 776 / 200 |
+| Verdict | approved; no correction transition was offered |
+| Acknowledgement | completed, authority burned (`gentle-ai.review-acknowledged/v1`) |
+| Delivery | ordinary repository policy — the receipt never authorizes delivery |
+
+The consent envelope was resolved upstream by the interactive Pi host, not by the agent, and no
+consent was ever fabricated from model prose. START returned ambiguous output (`state: reviewing`
+with `operation: answer-consent` but no `consentBinding` and no `consent/v3` envelope), so exactly
+one target-scoped STATUS was issued to resolve the transition, per contract.
+
+### Advisory findings and their follow-up
+
+All three were non-blocking: none opened a correction, none reopened the review, and none is a
+reason to re-run review on that candidate. T8 is a new candidate and was reviewed separately.
+
+| Finding | Location | Severity | Follow-up |
+|---|---|---|---|
+| `R3-retry-swallows-errors` | `modules/utils.py:30-46` | SUGGESTION | T8: `fetch_with_retry` logs every failed attempt with attempt number, optional `label`, exception type and message |
+| `R3-standings-break-truncates` | `modules/plotting.py:677-678` | WARNING | T8: empty standings for a round whose race has already run is a transient source gap, not end of season; with no schedule, two consecutive empty rounds are required to stop |
+| `R3-standings-empty-pivot` | `modules/plotting.py:712-714` | WARNING | T8: the driver pivot and heatmap are skipped when there are no driver rows, and the teams figure is still returned alone |
+
 ## Dependency order
 
 T1 → (T2, T3) → (T4, T5) → T6 → T7 (approval-gated).
@@ -172,6 +207,8 @@ Work-unit commits happen on the feature branch; record the commit identity here 
 | T3 + T5 | `eea7eda` | `fix(app): support 2025-2026 seasons and fix session cache, geocoding and map output` |
 | T4 | `fdb3f8a` | `feat(championship): rebuild the standings charts from cumulative standings` |
 | T6 | `24dea33` | `docs: add a real README and a Streamlit theme baseline` |
+| bookkeeping | `f6653ae` | `chore(odd): close phase-0 tasks T3-T6 with commit evidence` |
+| T8 | `d1ac7a0` | `fix(championship): close the three reliability findings from the native review` |
 
 Local git identity was unset in this clone, so `user.name` / `user.email` were set **repo-locally**
 (not globally) to match the existing history (`germanpadua <german8adaba@gmail.com>`).
