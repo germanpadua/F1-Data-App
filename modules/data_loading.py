@@ -5,10 +5,10 @@ import pickle
 from PIL import Image
 import matplotlib.pyplot as plt
 
-@st.cache_data
+@st.cache_resource
 def cargar_datos_de_sesion(year, gp, session_type):
     session = get_session(year, gp, session_type)
-    session.load(telemetry=True, weather=False)
+    session.load(laps=True, telemetry=True, weather=True)
     return session
 
 def obtener_calendario(year):

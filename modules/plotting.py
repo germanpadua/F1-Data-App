@@ -25,8 +25,11 @@ import plotly.express as px
 import difflib
 
 
-fastf1.plotting.setup_mpl(mpl_timedelta_support=False, misc_mpl_mods=False)
+fastf1.plotting.setup_mpl(mpl_timedelta_support=False)
 
+# Cosmetic per-season dash-style overrides for drivers. Seasons not listed here
+# (e.g. 2025, 2026) automatically fall back to 'solid' via .get(year, {})
+# lookups; do NOT hand-maintain entries for future seasons.
 driver_dash_styles = {
     2024: {
         'VER': 'solid',
@@ -328,7 +331,6 @@ def grafico_comparar_vueltas_en_mapa(session, piloto1, piloto2):
     
     # Create a continuous norm to map from data points to colors
     absmax = max(abs(color.min()), abs(color.max()))
-    print(absmax)
     norm = mpl.colors.TwoSlopeNorm(vmin=-absmax, vcenter=0.0, vmax=absmax)
     #norm = mpl.colors.TwoSlopeNorm(vmin=min, vcenter=0.0, vmax=max)
     #norm = mpl.colors.SymLogNorm(linthresh=0.05, vmin=-absmax, vmax=absmax)
@@ -529,7 +531,11 @@ def mostrar_mapa_circuito(lap, pos, circuit_info, name):
     plt.xticks([])
     plt.yticks([])
     plt.axis('equal')
-    plt.savefig('data/circuit_image/'+name + '.png')
+    # Generated maps go to cache/ (regenerable, gitignored); committed curated
+    # assets under data/circuit_image/ are never overwritten.
+    output_dir = os.path.join('cache', 'circuit_maps')
+    os.makedirs(output_dir, exist_ok=True)
+    plt.savefig(os.path.join(output_dir, name + '.png'))
     
     return fig
     
