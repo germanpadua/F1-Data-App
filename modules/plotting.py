@@ -613,16 +613,29 @@ def grafico_evolucion_campeonato(year):
         ergast = Ergast()
 
         # Nombres de las carreras para las etiquetas del eje X. Si el calendario
-        # no está disponible, se usa el número de ronda como etiqueta.
+        # no está disponible, se usa el número de ronda como etiqueta. También se
+        # registran las fechas: una ronda cuya carrera ya ocurrió debería tener
+        # posiciones disponibles.
         race_labels = {}
+        race_dates = {}
         try:
             races = ergast.get_race_schedule(year)
             race_labels = {
                 int(rnd): name.removesuffix(' Grand Prix')
                 for rnd, name in zip(races['round'], races['raceName'])
             }
+            race_dates = {
+                int(rnd): ts.date()
+                for rnd, ts in zip(races['round'], races['raceDate'])
+            }
         except Exception:
             race_labels = {}
+            race_dates = {}
+        # Rondas cuya carrera ya se disputó: se espera que tengan posiciones.
+        expected_rounds = {
+            rnd for rnd, date in race_dates.items()
+            if date <= datetime.date.today()
+        }
 
         # Colores de pilotos y equipos desde una sesión temporal de FastF1.
         # Si falla (sin datos del evento, error de API, color faltante), se usa
@@ -662,9 +675,15 @@ def grafico_evolucion_campeonato(year):
         driver_rows = []
         team_rows = []
         completed_rounds = []
+        # Sin calendario no se puede saber qué rondas ya se disputaron; en ese
+        # modo degradado se exigen DOS rondas vacías consecutivas antes de dar
+        # la temporada por terminada, para que una respuesta vacía aislada no
+        # trunque la temporada. El contador se reinicia con cada ronda con datos.
+        consecutive_empty_rounds = 0
         for rnd in range(1, max_rounds + 1):
             driver_resp = fetch_with_retry(
-                lambda r=rnd: ergast.get_driver_standings(season=year, round=r))
+                lambda r=rnd: ergast.get_driver_standings(season=year, round=r),
+                label=f"driver standings round {rnd}")
             if driver_resp is RETRY_FAILED:
                 # Una ronda ilegible no debe truncar la temporada entera: se
                 # conserva en el eje para no correr las etiquetas, queda plana
@@ -675,9 +694,26 @@ def grafico_evolucion_campeonato(year):
                     "tras varios intentos. Se omitirá esta ronda del campeonato de pilotos.")
                 completed_rounds.append(rnd)
                 continue
-            if not driver_resp.content:  # Ronda aún no disputada: fin de la temporada
-                break
+            if not driver_resp.content:  # Sin datos de posiciones
+                if rnd in expected_rounds:
+                    # La carrera ya se disputó: hueco transitorio de la fuente,
+                    # no fin de temporada. Se mantiene la ronda en el eje y se
+                    # continúa con la siguiente.
+                    st.warning(
+                        f"Las posiciones de pilotos de la ronda {rnd}, ya disputada, no "
+                        "están disponibles temporalmente. Se omitirá esta ronda del "
+                        "campeonato de pilotos.")
+                    completed_rounds.append(rnd)
+                    continue
+                if not expected_rounds:
+                    # Sin calendario: sólo se corta ante dos vacías consecutivas.
+                    consecutive_empty_rounds += 1
+                    if consecutive_empty_rounds >= 2:
+                        break
+                    continue
+                break  # Ronda aún no disputada: fin de la temporada
 
+            consecutive_empty_rounds = 0
             completed_rounds.append(rnd)
             driver_table = driver_resp.content[0]
             driver_table.columns = driver_table.columns.str.strip()
@@ -686,7 +722,8 @@ def grafico_evolucion_campeonato(year):
                     {'round': rnd, 'driverCode': row['driverCode'], 'points': row['points']})
 
             team_resp = fetch_with_retry(
-                lambda r=rnd: ergast.get_constructor_standings(season=year, round=r))
+                lambda r=rnd: ergast.get_constructor_standings(season=year, round=r),
+                label=f"constructor standings round {rnd}")
             if team_resp is RETRY_FAILED:
                 st.warning(
                     f"No se pudieron obtener las posiciones de constructores de la ronda {rnd} "
@@ -707,39 +744,52 @@ def grafico_evolucion_campeonato(year):
             st.warning("No se encontraron datos suficientes para generar los gráficos.")
             return None, None, None
 
+        if not driver_rows and not team_rows:
+            st.warning("No se encontraron datos de pilotos ni de equipos para generar los gráficos.")
+            return None, None, None
+
         x_labels = [race_labels.get(r, str(r)) for r in completed_rounds]
 
         # ---- Gráfico de Evolución del Campeonato de Pilotos ----
-        results_drivers = pd.DataFrame(driver_rows)
-        pivot_drivers = results_drivers.pivot(
-            index='driverCode', columns='round', values='points')
-        # Un piloto ausente en una ronda conserva su acumulado anterior.
-        pivot_drivers = pivot_drivers.reindex(columns=completed_rounds).ffill(axis=1).fillna(0)
-        pivot_drivers.columns = x_labels
-        final_totals_drivers = pivot_drivers.iloc[:, -1]
-        pivot_drivers = pivot_drivers.loc[
-            final_totals_drivers.sort_values(ascending=False, kind='stable').index]
+        # El heatmap depende del pivot de pilotos: si no hay filas de pilotos
+        # (p.ej. todas las rondas fallaron pero se conservaron en el eje), se
+        # omiten ambos gráficos en lugar de pivitar un DataFrame vacío.
+        fig_drivers = None
+        fig_heatmap = None
+        if driver_rows:
+            results_drivers = pd.DataFrame(driver_rows)
+            pivot_drivers = results_drivers.pivot(
+                index='driverCode', columns='round', values='points')
+            # Un piloto ausente en una ronda conserva su acumulado anterior.
+            pivot_drivers = pivot_drivers.reindex(columns=completed_rounds).ffill(axis=1).fillna(0)
+            pivot_drivers.columns = x_labels
+            final_totals_drivers = pivot_drivers.iloc[:, -1]
+            pivot_drivers = pivot_drivers.loc[
+                final_totals_drivers.sort_values(ascending=False, kind='stable').index]
 
-        fig_drivers = go.Figure()
-        for driver in pivot_drivers.index:
-            piloto_color = driver_color_mapping.get(driver) or _fallback_color(driver)
-            dash_style = driver_dash_styles.get(year, {}).get(driver, 'solid')
+            fig_drivers = go.Figure()
+            for driver in pivot_drivers.index:
+                piloto_color = driver_color_mapping.get(driver) or _fallback_color(driver)
+                dash_style = driver_dash_styles.get(year, {}).get(driver, 'solid')
 
-            fig_drivers.add_trace(go.Scatter(
-                x=pivot_drivers.columns,
-                y=pivot_drivers.loc[driver],
-                mode='lines+markers',
-                name=driver,
-                line=dict(color=piloto_color, dash=dash_style)
-            ))
+                fig_drivers.add_trace(go.Scatter(
+                    x=pivot_drivers.columns,
+                    y=pivot_drivers.loc[driver],
+                    mode='lines+markers',
+                    name=driver,
+                    line=dict(color=piloto_color, dash=dash_style)
+                ))
 
-        fig_drivers.update_layout(
-            title="Evolución del Campeonato de Pilotos",
-            xaxis_title="Carrera",
-            yaxis_title="Puntos Acumulados",
-            xaxis=dict(tickmode='linear'),
-            yaxis=dict(rangemode='tozero')
-        )
+            fig_drivers.update_layout(
+                title="Evolución del Campeonato de Pilotos",
+                xaxis_title="Carrera",
+                yaxis_title="Puntos Acumulados",
+                xaxis=dict(tickmode='linear'),
+                yaxis=dict(rangemode='tozero')
+            )
+        else:
+            st.warning("No se encontraron datos de pilotos para generar el gráfico de pilotos "
+                       "ni el mapa de calor.")
 
         # ---- Gráfico de Evolución del Campeonato de Equipos ----
         if team_rows:
@@ -789,46 +839,48 @@ def grafico_evolucion_campeonato(year):
             fig_teams = None
 
         # ---- Heatmap de Puntos de Pilotos ----
-        # Puntos por ronda a partir de los acumulados: diferencia entre rondas
-        # consecutivas; la primera runda vale su propio acumulado.
-        per_round_drivers = pivot_drivers.diff(axis=1)
-        per_round_drivers.iloc[:, 0] = pivot_drivers.iloc[:, 0]
+        # Requiere el pivot de pilotos; ya se inicializó a None si falta.
+        if driver_rows:
+            # Puntos por ronda a partir de los acumulados: diferencia entre rondas
+            # consecutivas; la primera runda vale su propio acumulado.
+            per_round_drivers = pivot_drivers.diff(axis=1)
+            per_round_drivers.iloc[:, 0] = pivot_drivers.iloc[:, 0]
 
-        # Una ronda disputada siempre reparte puntos. Un total de cero indica que
-        # la fuente devolvió para esa ronda los acumulados de la anterior, en cuyo
-        # caso los puntos aparecen una ronda tarde. Mejor avisar que mostrarlo
-        # en silencio.
-        rounds_without_points = [
-            x_labels[i] for i in range(len(x_labels))
-            if per_round_drivers.iloc[:, i].abs().sum() == 0
-        ]
-        if rounds_without_points:
-            st.warning(
-                "Estas rondas no reparten puntos en los datos recibidos, lo que suele indicar "
-                "datos incompletos en la fuente; los puntos pueden aparecer una ronda más tarde: "
-                + ", ".join(rounds_without_points)
+            # Una ronda disputada siempre reparte puntos. Un total de cero indica que
+            # la fuente devolvió para esa ronda los acumulados de la anterior, en cuyo
+            # caso los puntos aparecen una ronda tarde. Mejor avisar que mostrarlo
+            # en silencio.
+            rounds_without_points = [
+                x_labels[i] for i in range(len(x_labels))
+                if per_round_drivers.iloc[:, i].abs().sum() == 0
+            ]
+            if rounds_without_points:
+                st.warning(
+                    "Estas rondas no reparten puntos en los datos recibidos, lo que suele indicar "
+                    "datos incompletos en la fuente; los puntos pueden aparecer una ronda más tarde: "
+                    + ", ".join(rounds_without_points)
+                )
+
+            fig_heatmap = px.imshow(
+                per_round_drivers,
+                text_auto=True,
+                aspect='auto',
+                color_continuous_scale=[[0, 'rgb(198, 219, 239)'],
+                                        [0.25, 'rgb(107, 174, 214)'],
+                                        [0.5, 'rgb(33, 113, 181)'],
+                                        [0.75, 'rgb(8, 81, 156)'],
+                                        [1, 'rgb(8, 48, 107)']],
+                labels={'x': 'Carrera', 'y': 'Piloto', 'color': 'Puntos'}
             )
 
-        fig_heatmap = px.imshow(
-            per_round_drivers,
-            text_auto=True,
-            aspect='auto',
-            color_continuous_scale=[[0, 'rgb(198, 219, 239)'],
-                                    [0.25, 'rgb(107, 174, 214)'],
-                                    [0.5, 'rgb(33, 113, 181)'],
-                                    [0.75, 'rgb(8, 81, 156)'],
-                                    [1, 'rgb(8, 48, 107)']],
-            labels={'x': 'Carrera', 'y': 'Piloto', 'color': 'Puntos'}
-        )
-
-        fig_heatmap.update_xaxes(title_text='')
-        fig_heatmap.update_yaxes(title_text='')
-        fig_heatmap.update_yaxes(tickmode='linear')
-        fig_heatmap.update_yaxes(showgrid=True, gridwidth=1, gridcolor='LightGrey', showline=False, tickson='boundaries')
-        fig_heatmap.update_xaxes(showgrid=False, showline=False)
-        fig_heatmap.update_layout(plot_bgcolor='rgba(0,0,0,0)')
-        fig_heatmap.update_layout(coloraxis_showscale=False)
-        fig_heatmap.update_layout(xaxis=dict(side='top'))
-        fig_heatmap.update_layout(margin=dict(l=0, r=0, b=0, t=0))
+            fig_heatmap.update_xaxes(title_text='')
+            fig_heatmap.update_yaxes(title_text='')
+            fig_heatmap.update_yaxes(tickmode='linear')
+            fig_heatmap.update_yaxes(showgrid=True, gridwidth=1, gridcolor='LightGrey', showline=False, tickson='boundaries')
+            fig_heatmap.update_xaxes(showgrid=False, showline=False)
+            fig_heatmap.update_layout(plot_bgcolor='rgba(0,0,0,0)')
+            fig_heatmap.update_layout(coloraxis_showscale=False)
+            fig_heatmap.update_layout(xaxis=dict(side='top'))
+            fig_heatmap.update_layout(margin=dict(l=0, r=0, b=0, t=0))
 
         return fig_drivers, fig_teams, fig_heatmap
