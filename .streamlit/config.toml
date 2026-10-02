@@ -1,0 +1,17 @@
+# Streamlit configuration baseline.
+#
+# The theme is deliberately conservative: a light base keeps the embedded
+# matplotlib figures (which render on white) readable. A full visual identity,
+# including making the matplotlib output theme-aware, belongs to the Phase 2
+# frontend work rather than here.
+
+[theme]
+base = "light"
+primaryColor = "#e10600"
+font = "sans serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false
