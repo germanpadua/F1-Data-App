@@ -188,11 +188,12 @@ if st.checkbox("Mostrar información adicional del circuito"):
 
 if st.checkbox("Mostrar evolución del campeonato de pilotos"):
     fig1, fig2, fig3 = grafico_evolucion_campeonato(year)
-    
-    if fig1 is not None and fig2 is not None and fig3 is not None:
-        st.plotly_chart(fig1)
-        st.plotly_chart(fig2)
-        st.plotly_chart(fig3)
+
+    # Se muestra cada figura disponible: si falta la de equipos, las otras dos
+    # siguen siendo útiles.
+    for figura in (fig1, fig2, fig3):
+        if figura is not None:
+            st.plotly_chart(figura)
         
         
 if 'mostrar_analisis' not in st.session_state:
