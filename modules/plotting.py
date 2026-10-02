@@ -15,11 +15,12 @@ import streamlit as st
 import datetime
 from matplotlib.colors import to_hex
 from itertools import cycle
-from modules.utils import rotate
+from modules.utils import fetch_with_retry, RETRY_FAILED, rotate
 from matplotlib.ticker import FuncFormatter
 from scipy.signal import savgol_filter
 import pickle
 import os
+import zlib
 from fastf1.ergast import Ergast
 import plotly.express as px
 import difflib
@@ -609,111 +610,168 @@ def obtener_mejor_coincidencia(nombre, lista_nombres):
 
 def grafico_evolucion_campeonato(year):
     with st.spinner('Cargando datos del campeonato...'):
-        # Obtén la información de la temporada
         ergast = Ergast()
-        races = ergast.get_race_schedule(year)  # Carreras del año seleccionado
-        results = []
 
-        # Crea una sesión temporal para obtener los colores de los pilotos y equipos
-        temp_session = fastf1.get_session(year, races['round'][0], 'R')
-        driver_color_mapping = plotting.get_driver_color_mapping(temp_session)
+        # Nombres de las carreras para las etiquetas del eje X. Si el calendario
+        # no está disponible, se usa el número de ronda como etiqueta.
+        race_labels = {}
+        try:
+            races = ergast.get_race_schedule(year)
+            race_labels = {
+                int(rnd): name.removesuffix(' Grand Prix')
+                for rnd, name in zip(races['round'], races['raceName'])
+            }
+        except Exception:
+            race_labels = {}
 
-        # Obtener nombres de equipos para todos los pilotos en la sesión
-        teams_in_session = plotting.list_team_names(temp_session)
+        # Colores de pilotos y equipos desde una sesión temporal de FastF1.
+        # Si falla (sin datos del evento, error de API, color faltante), se usa
+        # una paleta de reserva determinista en lugar de lanzar una excepción.
+        fallback_palette = [
+            '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+            '#8c564b', '#e377c2', '#bcbd22', '#17becf', '#aec7e8',
+            '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5', '#c49c94',
+            '#f7b6d2',
+        ]
 
-        # Crear un mapeo de equipos a colores usando `get_team_color`
-        team_color_mapping = {team: plotting.get_team_color(team, temp_session) for team in teams_in_session}
+        def _fallback_color(name):
+            return fallback_palette[zlib.crc32(name.encode('utf-8')) % len(fallback_palette)]
 
-        # Recorre cada carrera en la temporada
-        race_names = []  # Lista para almacenar los nombres de las carreras en orden
-        for rnd, race in races['raceName'].items():
-            # Añade el nombre de la carrera a la lista
-            race_names.append(race.removesuffix(' Grand Prix'))
+        driver_color_mapping = {}
+        team_color_mapping = {}
+        teams_in_session = []
+        try:
+            temp_session = fastf1.get_session(year, 1, 'R')
+            driver_color_mapping = plotting.get_driver_color_mapping(temp_session)
+            teams_in_session = list(plotting.list_team_names(temp_session))
+            for team in teams_in_session:
+                try:
+                    color = plotting.get_team_color(team, temp_session)
+                except Exception:
+                    color = None
+                if color:
+                    team_color_mapping[team] = color
+        except Exception:
+            st.warning("No se pudieron cargar los colores oficiales de FastF1; se usará una paleta de reserva.")
 
-            # Obtén los resultados de la carrera
-            temp = ergast.get_race_results(season=year, round=rnd + 1)
-            
-            if not temp.content:  # Verifica si la lista no está vacía
-                continue  # Salta a la siguiente iteración del bucle
-            
-            temp = temp.content[0]
+        # Descubre las rondas disputadas: una llamada de posiciones por ronda y
+        # tabla, hasta la primera ronda sin datos (aún no disputada). El
+        # calendario acota la búsqueda, por si la API responde con un error en
+        # lugar de una lista vacía para una ronda futura.
+        max_rounds = max(race_labels) if race_labels else 30
+        driver_rows = []
+        team_rows = []
+        completed_rounds = []
+        for rnd in range(1, max_rounds + 1):
+            driver_resp = fetch_with_retry(
+                lambda r=rnd: ergast.get_driver_standings(season=year, round=r))
+            if driver_resp is RETRY_FAILED:
+                # Una ronda ilegible no debe truncar la temporada entera: se
+                # conserva en el eje para no correr las etiquetas, queda plana
+                # (acumulados repetidos) y los puntos se atribuyen a la ronda
+                # siguiente. Los totales no cambian.
+                st.warning(
+                    f"No se pudieron obtener las posiciones de pilotos de la ronda {rnd} "
+                    "tras varios intentos. Se omitirá esta ronda del campeonato de pilotos.")
+                completed_rounds.append(rnd)
+                continue
+            if not driver_resp.content:  # Ronda aún no disputada: fin de la temporada
+                break
 
-            # Verificar los nombres de las columnas y eliminar espacios en blanco
-            temp.columns = temp.columns.str.strip()
+            completed_rounds.append(rnd)
+            driver_table = driver_resp.content[0]
+            driver_table.columns = driver_table.columns.str.strip()
+            for _, row in driver_table.iterrows():
+                driver_rows.append(
+                    {'round': rnd, 'driverCode': row['driverCode'], 'points': row['points']})
 
-            # Si hay un sprint, también obtén los resultados del sprint
-            sprint = ergast.get_sprint_results(season=year, round=rnd + 1)
-            if sprint.content and sprint.description['round'][0] == rnd + 1:
-                temp = pd.merge(temp, sprint.content[0], on='driverCode', how='left', suffixes=('', '_sprint'))
-                # Suma los puntos de la carrera y del sprint, si existen
-                if 'points_sprint' in temp.columns:
-                    temp['points'] = temp['points'] + temp['points_sprint']
-                temp.drop(columns=[col for col in temp.columns if col.endswith('_sprint')], inplace=True)
+            team_resp = fetch_with_retry(
+                lambda r=rnd: ergast.get_constructor_standings(season=year, round=r))
+            if team_resp is RETRY_FAILED:
+                st.warning(
+                    f"No se pudieron obtener las posiciones de constructores de la ronda {rnd} "
+                    "tras varios intentos. Se omitirá esta ronda del campeonato de equipos.")
+            elif not team_resp.content:
+                st.warning(
+                    f"Las posiciones de constructores de la ronda {rnd} no están disponibles. "
+                    "Se omitirá esta ronda del campeonato de equipos.")
+            else:
+                team_table = team_resp.content[0]
+                team_table.columns = team_table.columns.str.strip()
+                for _, row in team_table.iterrows():
+                    team_rows.append(
+                        {'round': rnd, 'constructorName': row['constructorName'],
+                         'points': row['points']})
 
-            # Verificar si 'constructorName' está en las columnas después de la fusión
-            if 'constructorName' not in temp.columns:
-                st.warning(f"La columna 'constructorName' no está disponible después de procesar la carrera {race}. Se omitirá esta carrera en el análisis del campeonato de equipos.")
-                temp['constructorName'] = None  # Asigna un valor nulo si no está presente
+        if not completed_rounds:
+            st.warning("No se encontraron datos suficientes para generar los gráficos.")
+            return None, None, None
 
-            # Aplicar coincidencia aproximada para emparejar nombres de equipos y constructores
-            temp['constructorName'] = temp['constructorName'].apply(lambda x: obtener_mejor_coincidencia(x, teams_in_session) if pd.notna(x) else None)
+        x_labels = [race_labels.get(r, str(r)) for r in completed_rounds]
 
-            # Añade el número de ronda y el nombre del Gran Premio
-            temp['round'] = rnd + 1
-            temp['race'] = race.removesuffix(' Grand Prix')
+        # ---- Gráfico de Evolución del Campeonato de Pilotos ----
+        results_drivers = pd.DataFrame(driver_rows)
+        pivot_drivers = results_drivers.pivot(
+            index='driverCode', columns='round', values='points')
+        # Un piloto ausente en una ronda conserva su acumulado anterior.
+        pivot_drivers = pivot_drivers.reindex(columns=completed_rounds).ffill(axis=1).fillna(0)
+        pivot_drivers.columns = x_labels
+        final_totals_drivers = pivot_drivers.iloc[:, -1]
+        pivot_drivers = pivot_drivers.loc[
+            final_totals_drivers.sort_values(ascending=False, kind='stable').index]
 
-            # Conservar solo las columnas necesarias
-            temp = temp[['round', 'race', 'driverCode', 'constructorName', 'points']]  
-            results.append(temp)
+        fig_drivers = go.Figure()
+        for driver in pivot_drivers.index:
+            piloto_color = driver_color_mapping.get(driver) or _fallback_color(driver)
+            dash_style = driver_dash_styles.get(year, {}).get(driver, 'solid')
 
-        # Combina los resultados en un solo dataframe
-        if results:
-            results = pd.concat(results)
-            
-            # ---- Gráfico de Evolución del Campeonato de Pilotos ----
-            results_pivot_drivers = results.pivot(index='driverCode', columns='round', values='points').fillna(0)
-            results_pivot_drivers.columns = race_names[:len(results_pivot_drivers.columns)]
-            results_pivot_drivers['total_points'] = results_pivot_drivers.sum(axis=1)
-            results_pivot_drivers = results_pivot_drivers.sort_values(by='total_points', ascending=False)
-            results_pivot_drivers.drop(columns='total_points', inplace=True)
-            results_cumulative_drivers = results_pivot_drivers.cumsum(axis=1)
+            fig_drivers.add_trace(go.Scatter(
+                x=pivot_drivers.columns,
+                y=pivot_drivers.loc[driver],
+                mode='lines+markers',
+                name=driver,
+                line=dict(color=piloto_color, dash=dash_style)
+            ))
 
-            fig_drivers = go.Figure()
-            for driver in results_cumulative_drivers.index:
-                piloto_color = driver_color_mapping.get(driver, 'gray')
-                dash_style = driver_dash_styles.get(year, {}).get(driver, 'solid')
+        fig_drivers.update_layout(
+            title="Evolución del Campeonato de Pilotos",
+            xaxis_title="Carrera",
+            yaxis_title="Puntos Acumulados",
+            xaxis=dict(tickmode='linear'),
+            yaxis=dict(rangemode='tozero')
+        )
 
-                fig_drivers.add_trace(go.Scatter(
-                    x=results_cumulative_drivers.columns,
-                    y=results_cumulative_drivers.loc[driver],
-                    mode='lines+markers',
-                    name=driver,
-                    line=dict(color=piloto_color, dash=dash_style)
-                ))
+        # ---- Gráfico de Evolución del Campeonato de Equipos ----
+        if team_rows:
+            results_teams = pd.DataFrame(team_rows)
 
-            fig_drivers.update_layout(
-                title="Evolución del Campeonato de Pilotos",
-                xaxis_title="Carrera",
-                yaxis_title="Puntos Acumulados",
-                xaxis=dict(tickmode='linear'),
-                yaxis=dict(rangemode='tozero')
-            )
+            pivot_teams = results_teams.groupby(
+                ['constructorName', 'round'])['points'].sum().unstack()
+            pivot_teams = pivot_teams.reindex(columns=completed_rounds).ffill(axis=1).fillna(0)
+            pivot_teams.columns = x_labels
+            final_totals_teams = pivot_teams.iloc[:, -1]
+            pivot_teams = pivot_teams.loc[
+                final_totals_teams.sort_values(ascending=False, kind='stable').index]
 
-            # ---- Gráfico de Evolución del Campeonato de Equipos ----
-            results_pivot_teams = results.groupby(['constructorName', 'round'])['points'].sum().unstack().fillna(0)
-            results_pivot_teams.columns = race_names[:len(results_pivot_teams.columns)]
-            results_pivot_teams['total_points'] = results_pivot_teams.sum(axis=1)
-            results_pivot_teams = results_pivot_teams.sort_values(by='total_points', ascending=False)
-            results_pivot_teams.drop(columns='total_points', inplace=True)
-            results_cumulative_teams = results_pivot_teams.cumsum(axis=1)
+            # Nombres de constructores que ya son clave exacta del mapeo de
+            # colores; la coincidencia aproximada no debe reivindicarlos.
+            exact_team_names = {t for t in pivot_teams.index if t in team_color_mapping}
 
             fig_teams = go.Figure()
-            for team in results_cumulative_teams.index:
-                team_color = team_color_mapping.get(team, 'gray')
+            for team in pivot_teams.index:
+                team_color = team_color_mapping.get(team)
+                if not team_color:
+                    # Coincidencia aproximada solo para el color (cosmético);
+                    # la etiqueta y los puntos conservan el nombre original.
+                    match = obtener_mejor_coincidencia(team, list(team_color_mapping))
+                    if match != team and match not in exact_team_names and match in team_color_mapping:
+                        team_color = team_color_mapping[match]
+                if not team_color:
+                    team_color = _fallback_color(team)
 
                 fig_teams.add_trace(go.Scatter(
-                    x=results_cumulative_teams.columns,
-                    y=results_cumulative_teams.loc[team],
+                    x=pivot_teams.columns,
+                    y=pivot_teams.loc[team],
                     mode='lines+markers',
                     name=team,
                     line=dict(color=team_color)
@@ -726,31 +784,51 @@ def grafico_evolucion_campeonato(year):
                 xaxis=dict(tickmode='linear'),
                 yaxis=dict(rangemode='tozero')
             )
+        else:
+            st.warning("No se encontraron datos de constructores para generar el gráfico de equipos.")
+            fig_teams = None
 
-            # ---- Heatmap de Puntos de Pilotos ----
-            fig_heatmap = px.imshow(
-                results_pivot_drivers,
-                text_auto=True,
-                aspect='auto',
-                color_continuous_scale=[[0, 'rgb(198, 219, 239)'],
-                                        [0.25, 'rgb(107, 174, 214)'],
-                                        [0.5, 'rgb(33, 113, 181)'],
-                                        [0.75, 'rgb(8, 81, 156)'],
-                                        [1, 'rgb(8, 48, 107)']],
-                labels={'x': 'Carrera', 'y': 'Piloto', 'color': 'Puntos'}
+        # ---- Heatmap de Puntos de Pilotos ----
+        # Puntos por ronda a partir de los acumulados: diferencia entre rondas
+        # consecutivas; la primera runda vale su propio acumulado.
+        per_round_drivers = pivot_drivers.diff(axis=1)
+        per_round_drivers.iloc[:, 0] = pivot_drivers.iloc[:, 0]
+
+        # Una ronda disputada siempre reparte puntos. Un total de cero indica que
+        # la fuente devolvió para esa ronda los acumulados de la anterior, en cuyo
+        # caso los puntos aparecen una ronda tarde. Mejor avisar que mostrarlo
+        # en silencio.
+        rounds_without_points = [
+            x_labels[i] for i in range(len(x_labels))
+            if per_round_drivers.iloc[:, i].abs().sum() == 0
+        ]
+        if rounds_without_points:
+            st.warning(
+                "Estas rondas no reparten puntos en los datos recibidos, lo que suele indicar "
+                "datos incompletos en la fuente; los puntos pueden aparecer una ronda más tarde: "
+                + ", ".join(rounds_without_points)
             )
 
-            fig_heatmap.update_xaxes(title_text='')
-            fig_heatmap.update_yaxes(title_text='')
-            fig_heatmap.update_yaxes(tickmode='linear')
-            fig_heatmap.update_yaxes(showgrid=True, gridwidth=1, gridcolor='LightGrey', showline=False, tickson='boundaries')
-            fig_heatmap.update_xaxes(showgrid=False, showline=False)
-            fig_heatmap.update_layout(plot_bgcolor='rgba(0,0,0,0)')
-            fig_heatmap.update_layout(coloraxis_showscale=False)
-            fig_heatmap.update_layout(xaxis=dict(side='top'))
-            fig_heatmap.update_layout(margin=dict(l=0, r=0, b=0, t=0))
+        fig_heatmap = px.imshow(
+            per_round_drivers,
+            text_auto=True,
+            aspect='auto',
+            color_continuous_scale=[[0, 'rgb(198, 219, 239)'],
+                                    [0.25, 'rgb(107, 174, 214)'],
+                                    [0.5, 'rgb(33, 113, 181)'],
+                                    [0.75, 'rgb(8, 81, 156)'],
+                                    [1, 'rgb(8, 48, 107)']],
+            labels={'x': 'Carrera', 'y': 'Piloto', 'color': 'Puntos'}
+        )
 
-            return fig_drivers, fig_teams, fig_heatmap
-        else:
-            st.warning("No se encontraron datos suficientes para generar los gráficos.")
-            return None, None, None
+        fig_heatmap.update_xaxes(title_text='')
+        fig_heatmap.update_yaxes(title_text='')
+        fig_heatmap.update_yaxes(tickmode='linear')
+        fig_heatmap.update_yaxes(showgrid=True, gridwidth=1, gridcolor='LightGrey', showline=False, tickson='boundaries')
+        fig_heatmap.update_xaxes(showgrid=False, showline=False)
+        fig_heatmap.update_layout(plot_bgcolor='rgba(0,0,0,0)')
+        fig_heatmap.update_layout(coloraxis_showscale=False)
+        fig_heatmap.update_layout(xaxis=dict(side='top'))
+        fig_heatmap.update_layout(margin=dict(l=0, r=0, b=0, t=0))
+
+        return fig_drivers, fig_teams, fig_heatmap
