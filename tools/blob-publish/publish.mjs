@@ -17,6 +17,25 @@
  *   It is a publishing scope only — the Python CLI can still export any
  *   season locally, and export is never restricted by it.
  *
+ * IDEMPOTENCE
+ *   Re-publishing OVERWRITES the same pathnames, so a run that failed
+ *   partway is repaired by running the script again: nothing is duplicated
+ *   and already-correct files are simply replaced. Vercel Blob refuses to
+ *   overwrite an existing pathname unless the request says so explicitly
+ *   ("This blob already exists, use `allowOverwrite: true`"), and that
+ *   refusal is the difference between a recoverable and an unrecoverable
+ *   partial store — so the option is requested, never assumed.
+ *
+ * RETRY-SAFE BODIES
+ *   Files are read into memory and uploaded as a Buffer, never as a stream.
+ *   The SDK retries a failed request (up to VERCEL_BLOB_RETRIES, default 10)
+ *   with the SAME body; a stream is already consumed by the first attempt,
+ *   so the retry re-sends a dead stream and dies with "Response body object
+ *   should not be disturbed or locked". Measured on a real season: 2 and 3
+ *   uploads out of 361 failed that way, with different files each run.
+ *   Artifacts are a few MB at most (largest: replay.json, ~3.2 MB), so
+ *   buffering costs nothing and turns a retry into an actual retry.
+ *
  * AUTHENTICATION
  *   BLOB_READ_WRITE_TOKEN (the documented long-lived read-write token for
  *   code running outside Vercel, e.g. GitHub Actions). IF THE TOKEN IS
@@ -35,10 +54,10 @@
  *   1 failure: missing export root/index.json, or any upload failure
  *     (every failed file is named; nothing is silently swallowed)
  */
-import { createReadStream } from "node:fs";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
@@ -177,9 +196,16 @@ async function upload(files, token, concurrency) {
 
   await pooled(files, concurrency, async (file) => {
     try {
-      const result = await put(file.pathname, createReadStream(file.localPath), {
+      // A Buffer, never a stream: the SDK retries with the same body, and a
+      // stream would already be consumed (see RETRY-SAFE BODIES above).
+      const body = await readFile(file.localPath);
+      const result = await put(file.pathname, body, {
         access: ACCESS,
+        // The on-disk relative path IS the pathname, so every re-publish
+        // targets pathnames that already exist. Without this the second run
+        // fails on every file (see IDEMPOTENCE in the header).
         addRandomSuffix: false,
+        allowOverwrite: true,
         token,
       });
       uploadedBytes += file.bytes;
