@@ -36,10 +36,15 @@ jobs:
       - name: Probe the F1 static endpoints
         run: |
           .venv/bin/python - <<'PY'
+          import os
           import urllib.error
           import urllib.request
 
           import fastf1
+
+          # actions/cache does not create its path on a miss and git cannot
+          # track an empty directory, so the cache dir has to exist first.
+          os.makedirs("cache", exist_ok=True)
 
           HOST = "https://livetiming.formula1.com"
 
