@@ -136,6 +136,14 @@ jobs:
         if: steps.discover.outputs.round == '' || steps.skip.outputs.skip == 'true'
         run: echo "nothing new to export; exiting successfully"
 
+      - name: Create the FastF1 cache directory
+        # actions/cache does NOT create its path on a miss, and cache/ is
+        # gitignored (git cannot track an empty directory), so on a cold cache
+        # fastf1.Cache.enable_cache raised NotADirectoryError and the export
+        # never ran on a runner at all. Idempotent when the cache was restored.
+        if: steps.discover.outputs.round != '' && steps.skip.outputs.skip != 'true'
+        run: mkdir -p cache
+
       - name: Export the round
         if: steps.discover.outputs.round != '' && steps.skip.outputs.skip != 'true'
         run: |
@@ -168,6 +176,12 @@ jobs:
       - name: Install the Blob publisher dependency
         if: steps.discover.outputs.round != ''
         run: npm install --prefix tools/blob-publish
+
+      - name: Test the Blob publisher
+        # The index merge and the stale-read guard are pure logic with a
+        # node --test suite; run it before anything touches the store.
+        if: steps.discover.outputs.round != ''
+        run: npm test --prefix tools/blob-publish
 
       - name: Publish to Vercel Blob
         # Without the secret this prints that publishing was skipped and
