@@ -44,8 +44,8 @@ recovery path itself is impossible.
 | P2.4 | Reproduce and fix the `gear > 8` defect (r9 VER, r12 NOR): producer repair or documented contract widening | done by `c0a97b0` (parallel session): impossible gear is nulled with a warning |
 | P2.5 | Verify and fix the CI index risk: `rebuild_index` + a cold `f1-export-2026-*` cache can shrink the published `index.json` to one race | done: the publisher merges the published index (index-merge.mjs) and refuses a stale read |
 | P2.7 | Artifacts are overwritten in place while Blob serves `cache-control: public, max-age=2592000`, so a returning visitor can read a 30-day-old copy of a re-exported race | pending (finding, not yet fixed) |
-| P2.8 | The daily CI export cannot run on a GitHub-hosted runner: the F1 CDN answers `403 Forbidden` to every session stream | pending — an infrastructure decision, not a code fix |
-| P2.9 | Decide whether `.github/workflows/diagnose-f1-egress.yml` (temporary) stays as a troubleshooting tool or is deleted | pending |
+| P2.8 | The daily CI export cannot run on a GitHub-hosted runner: the F1 CDN answers `403 Forbidden` to every session stream | resolved: the export/publish job was replaced by `tests.yml`, and export/publish are local steps |
+| P2.9 | Decide whether `.github/workflows/diagnose-f1-egress.yml` (temporary) stays as a troubleshooting tool or is deleted | done: deleted (`d8acfc1`) |
 
 ## Verified after the fixes (evidence)
 
@@ -177,6 +177,16 @@ because it reaches a different endpoint, which is why the `discover` step passes
 it fails.
 
 CONSEQUENCE: the export+publish workflow cannot succeed on a GitHub-hosted runner, by construction.
+
+RESOLUTION (chosen by the user): `export-latest-round.yml` was deleted and replaced by
+`.github/workflows/tests.yml`, which runs both suites on every push and pull request — measured on
+the runner: web `6 passed` of 6 files (98 packages) and publisher `11 pass`, in 9 s and 7 s. A
+publish-only CI was considered and rejected on the evidence: `data/export` is gitignored, so a runner
+has nothing to publish and the publisher would exit with "no index.json under data/export".
+Exporting, self-checking and publishing are therefore documented as local steps in
+`pipeline/README.md`, which is exactly what the `403` forces. The remaining automation option, if the
+daily job is wanted back, is a self-hosted runner: only a machine whose egress F1 accepts can download
+a session.
 The options, none of them a code change in this repository alone: run the export where the egress is
 allowed (self-hosted runner, a VPS, or a machine with a residential IP), route FastF1's requests
 through a proxy whose IP is allowed (`requests` honours `HTTPS_PROXY`, so the export step could take
