@@ -214,28 +214,28 @@ Two further findings from the same run:
 
 ## Tasks
 
-- [ ] **P1.1 — Skeleton and grid maths.** Create the `pipeline/` package with the shared time-grid
+- [x] **P1.1 — Skeleton and grid maths.** Create the `pipeline/` package with the shared time-grid
   helpers (session instant to grid index, array length invariant, `null` for missing), the
   `data/export/` layout writer, and artifact schema constants. Everything else depends on this.
-- [ ] **P1.2 — Track geometry.** Extract the centreline polyline, the rotation angle and the corner
+- [x] **P1.2 — Track geometry.** Extract the centreline polyline, the rotation angle and the corner
   labels from the session and write them into `race.json`.
-- [ ] **P1.3 — Replay traces.** Decimate each car's position and speed onto the shared grid and write
+- [x] **P1.3 — Replay traces.** Decimate each car's position and speed onto the shared grid and write
   `replay.json`. This is the payload with the largest size budget, so it is measured, not assumed.
-- [ ] **P1.4 — Timing tower and tyre strategy.** Per lap per driver: position, lap time, compound,
+- [x] **P1.4 — Timing tower and tyre strategy.** Per lap per driver: position, lap time, compound,
   tyre life, pit in/out, gap to leader.
-- [ ] **P1.5 — Timeline events.** Track status changes, race control messages, and the derived safety
+- [x] **P1.5 — Timeline events.** Track status changes, race control messages, and the derived safety
   car and VSC periods, time-ordered and de-duplicated.
-- [ ] **P1.6 — Per-driver telemetry.** Throttle, brake, RPM, gear and DRS onto the same grid, one file
+- [x] **P1.6 — Per-driver telemetry.** Throttle, brake, RPM, gear and DRS onto the same grid, one file
   per driver.
-- [ ] **P1.7 — CLI and index.** `python -m pipeline.export --year Y --round N [--session R] [--out DIR]`,
+- [x] **P1.7 — CLI and index.** `python -m pipeline.export --year Y --round N [--session R] [--out DIR]`,
   idempotent, and rewriting `index.json` with every race it has produced.
-- [ ] **P1.8 — Self-check validator.** `python -m pipeline.check --root data/export` verifying schemas,
+- [x] **P1.8 — Self-check validator.** `python -m pipeline.check --root data/export` verifying schemas,
   the `n_samples` length invariant on every array, plausible value ranges, and time ordering of events.
   This is the verification surface for the whole pipeline: a pipeline that produces plausible-looking
   but wrong-length arrays is worse than one that fails.
-- [ ] **P1.9 — CI workflow.** A GitHub Actions workflow that runs the export and the self-check for the
+- [x] **P1.9 — CI workflow.** A GitHub Actions workflow that runs the export and the self-check for the
   most recent completed round, and uploads the artifacts. It must not commit artifacts to the repo.
-- [ ] **P1.10 — Documentation.** `pipeline/README.md` describing the contract, the commands, and the
+- [x] **P1.10 — Documentation.** `pipeline/README.md` describing the contract, the commands, and the
   measured sizes, plus a README section in the repository root.
 
 ## Verification
@@ -251,3 +251,52 @@ per artifact are required evidence, not estimates.
 - No alert or episode domain: that belongs to the sibling `telemetry-sentinel` project, and reusing
   its web shell does not mean importing its domain model.
 - No commits of generated artifacts.
+
+## Status: COMPLETE (2026-10-03)
+
+All ten tasks are implemented and the pipeline exports and self-checks a real race end to end.
+
+### Measured artifacts — 2026 round 15, Azerbaijan Grand Prix
+
+| Artifact | Bytes | Fetched when |
+|---|---|---|
+| `race.json` | 164 747 | always, it is the index/manifest for the race |
+| `replay.json` | 4 086 965 | when the replay is opened |
+| `tel/*.json` (22 files) | 5 570 542 total, largest 338 401, median 238 623 | one file, only when a driver is selected |
+| **per race** | **9 822 254** | |
+
+`n_samples` is 11 858 with `t0_s` 3413.247. `index.json` is 708 B. A 24-race season is
+**~235.7 MB** of artifacts.
+
+**Read that number correctly:** it is a *deploy-size* figure, not a per-visit cost. The index page reads
+only `index.json`, the replay fetches one `replay.json`, and a `tel/` file is fetched only when a driver
+is selected. Per-visit transfer is therefore about 4.25 MB of JSON before compression.
+
+### Two reductions that were measured, not assumed
+
+| Change | `n_samples` | `replay.json` |
+|---|---|---|
+| session-wide grid (original contract) | 19 434 | 7 184 195 |
+| + trim to the racing window | 11 858 | 4 853 862 |
+| + delta-encoded x/y | 11 858 | 4 086 965 |
+
+Verified by round trip: prefix-summing one real car's deltas reproduces the absolute series exactly,
+including across a 200-null gap on a retired car.
+
+### Honest caveats recorded in `race.json`'s `warnings`
+
+- raw `throttle` reaches 104 in the feed, so it is clipped on 410 samples and the clip count is recorded
+- `drs` is 0 for every sample of this feed: the channel is kept but explicitly marked as not a reliable
+  DRS state
+- 57 events outside the trimmed window were dropped, and the count is stated rather than hidden
+- 125 `gap_leader_s` values are null because the leader's own lap was untimed during the safety car;
+  they are not fabricated
+
+### Review status
+
+The work in this phase is **NOT REVIEWED**. The first `review.start` for it returned a real
+`gentle-ai.review-integration.consent/v3` envelope at **risk level high** (shell scripting in
+`.github/workflows/export-latest-round.yml`) with `lineage_created: false`, and the consent choice is
+the human's to make, not the agent's. It was relayed verbatim with its `consentBinding` and never
+answered from agent prose. The binding expires after ten minutes, so a later attempt needs a fresh
+`review.start`.
