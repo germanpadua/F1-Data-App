@@ -1,4 +1,4 @@
-"""Shared time-grid maths (P1.1).
+"""Shared time-grid maths (P1.1, amended by Amendment 1).
 
 TIME ORIGIN — the trap this module exists to pin down:
 
@@ -11,7 +11,12 @@ Instead, every array in every artifact is addressed on FastF1's
 columns that FastF1 already provides on telemetry, track status and race
 control data. On that axis:
 
-    t0_s = 0.0   means "the start of the session-relative axis"
+    t0_s         the session-relative second at which the grid starts.
+                 Amendment 1: the grid is trimmed to the racing window, so
+                 t0_s is the earliest LapStartTime across drivers (about
+                 lights out) and is NO LONGER 0.0 by definition. It is
+                 written into race.json so the frontend can map a grid
+                 index back to a session time.
     step_s       fixed step (default 0.5 s)
     sample_index = round((t_s - t0_s) / step_s)
 
@@ -30,25 +35,32 @@ import pandas as pd
 DEFAULT_STEP_S = 0.5
 
 
-def compute_n_samples(max_t_s: float, step_s: float = DEFAULT_STEP_S) -> int:
-    """Grid length covering every instant up to ``max_t_s`` (inclusive).
+def compute_n_samples(max_t_s: float, t0_s: float = 0.0,
+                      step_s: float = DEFAULT_STEP_S) -> int:
+    """Grid length covering every instant from ``t0_s`` up to ``max_t_s``.
 
-    The last valid sample index is ``round(max_t_s / step_s)``, so the array
-    needs that many buckets plus one (bucket 0 exists).
+    The last valid sample index is ``round((max_t_s - t0_s) / step_s)``, so
+    the array needs that many buckets plus one (bucket 0 exists).
     """
-    return int(max_t_s / step_s) + 1
+    return int((max_t_s - t0_s) / step_s) + 1
 
 
 @dataclass(frozen=True)
 class Grid:
-    """The one shared time grid for a race."""
+    """The one shared time grid for a race (racing window only, Amendment 1)."""
 
     n_samples: int
     step_s: float = DEFAULT_STEP_S
+    t0_s: float = 0.0
+
+    @property
+    def t_end_s(self) -> float:
+        """Session-relative second of the last grid sample."""
+        return self.t0_s + (self.n_samples - 1) * self.step_s
 
     def index_of(self, t_s: float) -> int:
         """Session-relative seconds to grid index (may fall outside range)."""
-        return int(round((t_s - 0.0) / self.step_s))
+        return int(round((t_s - self.t0_s) / self.step_s))
 
     def index_of_timedelta(self, td: pd.Timedelta) -> int:
         return self.index_of(td.total_seconds())
@@ -74,8 +86,11 @@ class Grid:
         source samples fall into one bucket the last one wins. Source NaNs
         (FastF1 marks unavailable samples as NaN) also become ``None``.
 
-        Raises if the source data would overflow the grid, which would mean
-        the grid was built from the wrong extent.
+        Amendment 1: the grid covers the racing window only, so source
+        samples outside ``[t0_s, t_end_s]`` are EXPECTED (pre-race running
+        before the earliest LapStartTime, cool-down and parc fermé after the
+        last lap end plus margin) and are dropped here rather than treated
+        as an error.
         """
         times = np.asarray(
             [
@@ -90,14 +105,10 @@ class Grid:
 
         out: list = [None] * self.n_samples
         # Iterate backwards so the first writer per bucket is the last sample.
-        for i, v in zip(
-            np.round(times / self.step_s).astype(np.int64)[::-1], vals[::-1]
-        ):
+        idx = np.round((times - self.t0_s) / self.step_s).astype(np.int64)
+        for i, v in zip(idx[::-1], vals[::-1]):
             if i < 0 or i >= self.n_samples:
-                raise ValueError(
-                    f"{name}: sample at grid index {i} outside grid "
-                    f"[0, {self.n_samples}); grid extent is too small"
-                )
+                continue  # outside the trimmed racing window; dropped
             if math.isnan(v):
                 continue
             if out[i] is None:

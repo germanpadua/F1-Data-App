@@ -10,36 +10,38 @@ import json
 import logging
 from pathlib import Path
 
+import pandas as pd
 import fastf1
 
-from . import layout, replay as replay_mod, schemas, track as track_mod
+from . import events as events_mod
+from . import layout, replay as replay_mod, schemas, timing as timing_mod
+from . import track as track_mod
 from .grid import DEFAULT_STEP_S, Grid, compute_n_samples
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# Amendment 1 (A1a): the grid ends at the latest lap end plus this margin.
+RACING_WINDOW_MARGIN_S = 5.0
 
-def _max_session_time_s(session) -> float:
-    """Largest session-relative instant covered by the car/track-status data.
 
-    Race control messages are not included: they can trail the last car data
-    by many minutes (post-race admin flags), and they are emitted as t_s
-    floats in race.json events, not as grid-indexed arrays. The grid must
-    cover the cars; nothing else defines its extent.
+def _racing_window_s(session) -> tuple[float, float]:
+    """(t0_s, t_end_s) of the trimmed racing window, in session-relative seconds.
+
+    Amendment 1 (A1a): the origin is the earliest ``LapStartTime`` across
+    drivers — the leader's lap 1, about lights out — and the end is the
+    latest lap end across drivers plus a 5 s margin. Roughly 57 minutes of
+    pre-race session running are thereby excluded from every artifact.
     """
-    max_td = session.track_status["Time"].max()
-    max_s = max_td.total_seconds() if max_td is not None else 0.0
-    for number in session.drivers:  # scalars only; keep memory flat
-        pos = session.pos_data.get(number)
-        if pos is not None and len(pos):
-            pos_max = pos["SessionTime"].max()
-            if pos_max is not None:
-                max_s = max(max_s, pos_max.total_seconds())
-        car = session.car_data.get(number)
-        if car is not None and len(car):
-            car_max = car["SessionTime"].max()
-            if car_max is not None:
-                max_s = max(max_s, car_max.total_seconds())
-    return float(max_s)
+    laps = session.laps
+    start = laps["LapStartTime"].min()
+    end = (laps["LapStartTime"] + laps["LapTime"]).max()
+    if pd.isna(start) or pd.isna(end):
+        raise ValueError("no lap times available to derive the racing window")
+    t0_s = start.total_seconds()
+    t_end_s = end.total_seconds() + RACING_WINDOW_MARGIN_S
+    if t_end_s <= t0_s:
+        raise ValueError(f"degenerate racing window: [{t0_s}, {t_end_s}] s")
+    return t0_s, t_end_s
 
 
 def _build_race_manifest(session, grid: Grid, year: int, round_number: int,
@@ -61,12 +63,15 @@ def _build_race_manifest(session, grid: Grid, year: int, round_number: int,
 
     total_laps = int(session.laps["LapNumber"].max())
 
-    # P1.4 / P1.5 / P1.6 are other passes. The contract shape is honoured and
-    # the gap is made visible through warnings instead of silent emptiness.
+    events, event_warnings = events_mod.build_events(session, grid)
+    timing, timing_warnings = timing_mod.build_timing(session)
+
+    # P1.6 is another pass. The contract shape is honoured and the gap is
+    # made visible through warnings instead of silent emptiness.
     warnings = [
-        "timing tower and tyre strategy (P1.4) not implemented yet; timing is empty",
-        "timeline events (P1.5) not implemented yet; events is empty",
         "per-driver telemetry (P1.6) not implemented yet; tel/ files are not written",
+        *event_warnings,
+        *timing_warnings,
     ]
 
     return {
@@ -78,14 +83,17 @@ def _build_race_manifest(session, grid: Grid, year: int, round_number: int,
         "location": str(event["Location"]),
         "country": str(event["Country"]),
         "date": event["EventDate"].date().isoformat(),
-        "t0_s": 0.0,  # start of the session-relative axis; see pipeline/grid.py
+        # Amendment 1: session-relative second at which the trimmed grid
+        # starts (about lights out). The frontend needs this to map a grid
+        # index back to a session time; it is NOT 0.0 by definition any more.
+        "t0_s": grid.t0_s,
         "step_s": grid.step_s,
         "n_samples": grid.n_samples,
         "total_laps": total_laps,
         "drivers": drivers,
         "track": track_mod.build_track(session),
-        "timing": [],
-        "events": [],
+        "timing": timing,
+        "events": events,
         "warnings": warnings,
     }
 
@@ -96,9 +104,11 @@ def export_race(year: int, round_number: int, session_code: str,
     session = fastf1.get_session(year, round_number, session_code)
     session.load()  # heavy; cached by FastF1 under <repo>/cache/
 
+    t0_s, t_end_s = _racing_window_s(session)
     grid = Grid(
-        n_samples=compute_n_samples(_max_session_time_s(session)),
+        n_samples=compute_n_samples(t_end_s, t0_s),
         step_s=DEFAULT_STEP_S,
+        t0_s=t0_s,
     )
 
     race = _build_race_manifest(session, grid, year, round_number, session_code)

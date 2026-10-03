@@ -1,11 +1,17 @@
 """Self-check validator (P1.8): python -m pipeline.check --root data/export
 
-Verifies every artifact on disk against the Phase 1 contract:
+Verifies every artifact on disk against the Phase 1 contract (as amended by
+Amendment 1):
 - JSON parses and the declared schema identifier matches;
 - every array declared to be n_samples long is exactly that long;
 - numeric ranges are plausible (speed 0-400, throttle 0-100, brake and drs
   in {0, 1}, position >= 1), x/y are integers;
-- events are time-ordered;
+- DELTA ENCODING: replay x/y are stored delta-encoded (Amendment 1, A1b),
+  so range validation runs on the RECONSTRUCTED series (running sum over
+  non-null entries; first non-null value absolute; nulls transparent to the
+  chain) — never on the raw deltas, a legitimate delta of 200 would
+  otherwise be wrongly rejected against an absolute bound;
+- events are time-ordered and their ``kind`` is from the contract set;
 - index.json agrees with what is actually on disk (dirs, metadata, sizes).
 
 Prints every failure found and exits non-zero if there was any.
@@ -20,6 +26,11 @@ from . import layout, schemas
 
 SPEED_RANGE = (0, 400)
 THROTTLE_RANGE = (0, 100)
+# Reconstructed x/y absolute bound, in tenths of a metre. Real circuit
+# coordinates stay within a few tens of thousands; 1 000 000 (100 km) is far
+# outside any circuit, so a corrupt delta chain lands here.
+XY_ABS_LIMIT = 1_000_000
+EVENT_KINDS = ("track_status", "race_control", "safety_car", "vsc")
 
 
 class Failures(list):
@@ -67,8 +78,52 @@ def _check_channel(values, length: int, failures: Failures, what: str,
             return
 
 
+def _reconstruct_deltas(values):
+    """Inverse of the A1b delta encoding (see pipeline/replay.py).
+
+    First non-null value is absolute; each later non-null value is the
+    difference from the previous non-null value and is added to a running
+    total; nulls are transparent to the chain.
+    """
+    out = []
+    running = None
+    for v in values:
+        if v is None:
+            out.append(None)
+        elif running is None:
+            running = v
+            out.append(v)
+        else:
+            running += v
+            out.append(running)
+    return out
+
+
+def _check_delta_channel(values, length: int, failures: Failures, what: str,
+                         lo: int, hi: int) -> None:
+    """Validate a delta-encoded channel: ints, exact length, and the RANGE
+    CHECK ON THE RECONSTRUCTED SERIES, not on the deltas."""
+    if len(values) != length:
+        failures.add(f"{what}: length {len(values)} != n_samples {length}")
+    for v in values:
+        if v is None or isinstance(v, int):
+            continue
+        failures.add(f"{what}: non-integer delta {v!r}")
+        return
+    reconstructed = _reconstruct_deltas(values)
+    for v in reconstructed:
+        if v is None:
+            continue
+        if not (lo <= v <= hi):
+            failures.add(
+                f"{what}: reconstructed value {v} outside range [{lo}, {hi}] "
+                "(delta chain corrupt)"
+            )
+            return
+
+
 def check_race_dir(race_path: Path, failures: Failures) -> None:
-    what = race_path.parent.name
+    what = race_path.name  # e.g. 15-azerbaijan-grand-prix
     race = _load_json(race_path / layout.RACE_FILENAME, failures, what)
     if race is None or not _check_schema(race, schemas.SCHEMA_RACE, failures, what):
         return
@@ -81,15 +136,19 @@ def check_race_dir(race_path: Path, failures: Failures) -> None:
     for key in required_keys:
         if key not in race:
             failures.add(f"{what}: race.json missing key {key!r}")
-    if race.get("t0_s") != 0.0:
-        failures.add(f"{what}: t0_s must be 0.0 (session-relative axis), got {race.get('t0_s')!r}")
+    t0 = race.get("t0_s")
+    if not isinstance(t0, (int, float)) or isinstance(t0, bool) or t0 < 0:
+        failures.add(
+            f"{what}: t0_s must be the session-relative second where the "
+            f"trimmed grid starts (number >= 0), got {t0!r}"
+        )
 
     n = race.get("n_samples")
     if not isinstance(n, int) or n <= 0:
         failures.add(f"{what}: invalid n_samples {n!r}")
         return
 
-    # Events must be time-ordered.
+    # Events must be time-ordered and carry a contract kind.
     events = race.get("events") or []
     last_t = None
     for event in events:
@@ -100,13 +159,32 @@ def check_race_dir(race_path: Path, failures: Failures) -> None:
         if last_t is not None and t < last_t:
             failures.add(f"{what}: events not time-ordered at t_s={t}")
         last_t = t
+        if event.get("kind") not in EVENT_KINDS:
+            failures.add(
+                f"{what}: event kind {event.get('kind')!r} not in {EVENT_KINDS} "
+                f"at t_s={t}"
+            )
 
-    # Timing laps: position must be >= 1.
+    # Timing laps: position >= 1; lap times positive; pit flags boolean.
     for car in race.get("timing") or []:
         for lap in car.get("laps") or []:
             position = lap.get("position")
             if position is not None and (not isinstance(position, int) or position < 1):
                 failures.add(f"{what}: timing position {position!r} < 1 for {car.get('code')}")
+            lap_time = lap.get("lap_time_s")
+            if lap_time is not None and (
+                not isinstance(lap_time, (int, float)) or lap_time <= 0
+            ):
+                failures.add(
+                    f"{what}: timing lap_time_s {lap_time!r} not null/positive "
+                    f"for {car.get('code')} lap {lap.get('lap')}"
+                )
+            for flag in ("pit_in", "pit_out"):
+                if flag in lap and not isinstance(lap[flag], bool):
+                    failures.add(
+                        f"{what}: timing {flag} {lap[flag]!r} not boolean for "
+                        f"{car.get('code')} lap {lap.get('lap')}"
+                    )
 
     # replay.json
     replay_path = race_path / layout.REPLAY_FILENAME
@@ -119,13 +197,17 @@ def check_race_dir(race_path: Path, failures: Failures) -> None:
             failures.add(f"{what}: replay.json has no cars")
         for car in cars or []:
             code = car.get("code")
-            for channel in ("x", "y", "speed"):
-                _check_channel(
+            for channel in ("x", "y"):
+                _check_delta_channel(
                     car.get(channel) or [], n, failures,
                     f"{what}: replay {code} {channel}",
-                    lo=SPEED_RANGE[0] if channel == "speed" else None,
-                    hi=SPEED_RANGE[1] if channel == "speed" else None,
+                    lo=-XY_ABS_LIMIT, hi=XY_ABS_LIMIT,
                 )
+            _check_channel(
+                car.get("speed") or [], n, failures,
+                f"{what}: replay {code} speed",
+                lo=SPEED_RANGE[0], hi=SPEED_RANGE[1],
+            )
 
     # tel/<DRIVER>.json (P1.6 may not have run yet; checked only if present)
     tel_dir = race_path / layout.TEL_DIRNAME
