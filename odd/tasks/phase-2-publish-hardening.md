@@ -42,7 +42,8 @@ recovery path itself is impossible.
 | P2.3 | Re-publish to close the missing telemetry files and prove a second run is idempotent | done |
 | P2.6 | Fix the upload failure `Response body object should not be disturbed or locked` (non-replayable body on SDK retry) | done |
 | P2.4 | Reproduce and fix the `gear > 8` defect (r9 VER, r12 NOR): producer repair or documented contract widening | done by `c0a97b0` (parallel session): impossible gear is nulled with a warning |
-| P2.5 | Verify and fix the CI index risk: `rebuild_index` + a cold `f1-export-2026-*` cache can shrink the published `index.json` to one race | pending — and the reason NOT to dispatch the workflow yet |
+| P2.5 | Verify and fix the CI index risk: `rebuild_index` + a cold `f1-export-2026-*` cache can shrink the published `index.json` to one race | done: the publisher merges the published index (index-merge.mjs) and refuses a stale read |
+| P2.7 | Artifacts are overwritten in place while Blob serves `cache-control: public, max-age=2592000`, so a returning visitor can read a 30-day-old copy of a re-exported race | pending (finding, not yet fixed) |
 
 ## Verified after the fixes (evidence)
 
@@ -71,8 +72,9 @@ exits with `OK: all artifacts under data/export satisfy the contract`. That comm
 metadata optional (round 14) and walks timed laps to find a usable position trace (round 6), which
 is why the season is complete at all.
 
-**Not committed yet**: `tools/blob-publish/publish.mjs` (P2.2 + P2.6) and this document are the only
-files this feature changed, and they are still in the working tree. No commit was made.
+**Committed**: `9ff5ead` carries P2.2 and P2.6 (`tools/blob-publish/publish.mjs`). P2.5 is the second
+commit and adds `tools/blob-publish/index-merge.mjs`, its `node --test` suite and the
+`tools/blob-publish/package.json` test script.
 
 ### P2.2 notes
 
@@ -102,6 +104,60 @@ file. The fix uploads a `Buffer` (`node:fs/promises`), which survives retries; a
 A first attempt at the fix used `fs.readFile` without a callback and failed all 361 uploads with
 `The "cb" argument must be of type function` — the publisher reported every failure and exited 1, so
 the mistake was loud and never silent. The read is now `node:fs/promises`.
+
+### P2.5 notes (the CI could shrink the published index)
+
+The mechanism: `rebuild_index` writes `index.json` from the race directories on disk, and in CI those
+come from the `f1-export-2026-*` cache — cold on the first run, evictable later. A one-race index was
+then uploaded over the published one, and the fourteen races still in the store vanished from the
+app.
+
+The fix is in the PUBLISHER, not the exporter, and that placement is the whole point: the exporter
+must keep writing an index that agrees with the directories actually on disk (`pipeline/check.py`
+asserts exactly that), so it must never be taught about races that exist only in the store. The
+publisher is what knows the published store, so `index-merge.mjs` unions the two by `(year, round)` —
+the same key `rebuild_index` sorts by — with the local entry winning for a round that exists in both.
+The file is uploaded byte-for-byte as it sits on disk whenever the disk already covers the store; it
+is re-serialized only when the merge actually adds races. A published index that cannot be read or
+parsed is a hard failure, never a silent overwrite.
+
+Verified with a fixture that reproduces the CI exactly — `/tmp/cold-cache` holding only round 15:
+
+- dry run: `index.json: would publish 15 race(s) = 1 from disk + 14 only in the store (a disk-only
+  index would have DROPPED 14)`
+- real run: `exit 0`, 25 files, and the published index still lists **rounds 1..15**, byte-identical to
+  `data/export/index.json` (same md5), so the merge is lossless
+- the full-root run reports `the disk's 15 race(s) unchanged; the store has nothing extra` and does
+  not re-serialize anything
+- 11 unit tests (`npm test --prefix tools/blob-publish`) cover the cold-cache union, the renamed
+  event, multi-year ordering, duplicate rounds, non-mutation, and every malformed-input path
+
+**A residual risk found while testing, and guarded.** Blob purges its edge ASYNCHRONOUSLY: right after
+an overwrite, a read can still return the previous document (measured headers: `x-vercel-cache: HIT`,
+`age: 22`, and an etag from before the write while `head()` reported the new origin etag;
+`?bust=` does NOT bypass it). Merging from such a read would drop store-only races — the very failure
+P2.5 fixes, re-entering by another door. `readPublishedIndex` therefore compares the edge response's
+etag against the origin etag from `head()` and fails loudly on a mismatch
+(`isStaleRead`), because a stale read is not distinguishable from a real shrink otherwise. That guard
+path is unit-tested, but its trigger was not reproduced deterministically: the evidence that the two
+etags disagree while stale comes from the measured incident below.
+
+**Incident, on the record.** To prove the "never overwrite blind" property, the published index was
+deliberately corrupted twice (`{esto no es json` and `{}`). The publisher refused both times — `exit
+1`, zero uploads, clear error — and that is the property that matters. It also proved the async purge
+the hard way: for roughly twenty seconds after the restore the edge kept serving the corrupted copy
+before it went fresh. The index was restored from `data/export/index.json` and re-verified by md5 and
+by race count. Nothing else in the store was touched, and the deployed app's read path was confirmed
+(`index.json`, `race.json`, `replay.json` all 200) after the restore.
+
+### P2.7 notes
+
+Every artifact pathname is overwritten in place on a re-export while Blob serves
+`cache-control: public, max-age=2592000`. A browser that cached `replay.json` keeps serving that
+32-day-old copy to its user, so a re-export is invisible to returning visitors until the TTL expires.
+The edge has the same exposure, mitigated only by the (asynchronous, hence not instant) purge. The
+clean fix is content-addressed pathnames or a version carried by `index.json`; the cheap mitigation is
+a much shorter `cacheControlMaxAge` for these pathnames.
 
 Raw values are not "a wrong gear number": r9 VER has 9, 13, 19, 23, 29, 34, 38, 43 and r12 NOR has
 9..40. 43 is not a gear at all, so the question is whether the FastF1 feed carries garbage samples or

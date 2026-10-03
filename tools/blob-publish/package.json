@@ -6,7 +6,8 @@
   "description": "Publishes the exported F1 artifacts (data/export) to Vercel Blob. Publishing scope mirrors pipeline/scope.py.",
   "scripts": {
     "publish": "node publish.mjs",
-    "dry-run": "node publish.mjs --dry-run"
+    "dry-run": "node publish.mjs --dry-run",
+    "test": "node --test"
   },
   "dependencies": {
     "@vercel/blob": "^2.8.0"
