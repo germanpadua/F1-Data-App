@@ -19,7 +19,9 @@ export function ReplayView({
   onBack: () => void;
 }) {
   const tEnd = race.t0_s + replayDuration(race.n_samples, race.step_s);
-  const { t, playing, setPlaying, speed, setSpeed, jump } = useDataClock(tEnd);
+  // Start at the racing window, not at the start of the session: the artifacts
+  // are session-relative, and "the race" begins at race.t0_s.
+  const { t, playing, setPlaying, speed, setSpeed, jump } = useDataClock(tEnd, race.t0_s);
   const raceT = t - race.t0_s;
 
   return (

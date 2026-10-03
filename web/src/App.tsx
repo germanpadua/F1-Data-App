@@ -68,7 +68,9 @@ export function App() {
     );
   return (
     <main className="app">
-      <ReplayView race={race} cars={replay.cars} onBack={back} />
+      {/* Keyed by slug so switching races remounts the replay and its clock
+          resets to the new race's racing window instead of carrying over. */}
+      <ReplayView key={slug} race={race} cars={replay.cars} onBack={back} />
     </main>
   );
 }

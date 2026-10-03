@@ -1,10 +1,15 @@
 /**
  * The one module that owns all artifact fetching.
  *
- * The base URL comes from VITE_DATA_BASE_URL. Empty/absent means same-origin,
- * which is how development and `vite preview` work (web/public/data links to
- * the real data/export artifacts), and in production it points at the Vercel
- * Blob base URL. The identical code path serves both.
+ * The base URL comes from VITE_DATA_BASE_URL. In production it points at the
+ * Vercel Blob base URL. When it is absent the default is `/data`, which is where
+ * `npm run data:link` exposes the real data/export artifacts for local
+ * development and `vite preview`.
+ *
+ * The default is deliberately `/data` and not the empty string: the artifacts
+ * live under `public/data/`, so an empty base would request `/index.json` and
+ * 404. That mistake was invisible in production, where the environment variable
+ * is always set, and broke only a fresh clone running `npm run dev`.
  *
  * replay.json x/y arrive delta-encoded (Amendment 1); this module decodes them
  * once on load so every consumer works with absolute coordinates. `null`
@@ -18,7 +23,7 @@ export function resolveBase(explicit?: string): string {
     explicit ??
     (import.meta as { env?: Record<string, string | undefined> }).env
       ?.VITE_DATA_BASE_URL ??
-    "";
+    "/data";
   return raw.replace(/\/+$/, "");
 }
 
