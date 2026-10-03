@@ -12,19 +12,27 @@ The deploy and the `VITE_DATA_BASE_URL` wiring are done and verified; the publis
 to have defects that only a real upload could reveal. This feature tracks those defects to closure
 instead of leaving them as folklore.
 
-## Verified state of the deployment (evidence)
+## State at the first publish (snapshot, kept as evidence)
 
-- Deployed bundle inlines `VITE_DATA_BASE_URL = https://0a04umtkpigkvxmf.public.blob.vercel-storage.com`
-  (read back from `https://f1-data-app.vercel.app/assets/index-CO6qk4oS.js`).
+Everything below was true when the season was first published. Two items have since been FIXED and are
+annotated in place rather than deleted, because the deltas are the point: each one was invisible until
+a real upload happened.
+
+- Deployed bundle inlined `VITE_DATA_BASE_URL = https://0a04umtkpigkvxmf.public.blob.vercel-storage.com`
+  (read back from `https://f1-data-app.vercel.app/assets/index-CO6qk4oS.js`; that bundle hash has since
+  changed with the frontend fixes, and the value is still inlined).
 - `GET <blob-base>/index.json` -> `200`, 15 races, `access-control-allow-origin: *`,
-  `content-type: application/json`. The app's plain `GET` triggers no preflight.
+  `content-type: application/json`. The app's plain `GET` triggers no preflight. **(still true)**
 - Every race serves `race.json` and `replay.json` = `200`. The frontend fetches only those plus
-  `index.json` (`web/src/data.ts`), so the app renders from Blob today.
-- `pipeline.check --root data/export` **FAILS**: `tel/VER gear` (r9 British) and `tel/NOR gear`
-  (r12 Dutch) carry values above 8 (up to 43). Pre-existing in the committed checker
-  (`GEAR_RANGE = (0, 8)`, `pipeline/check.py:35`), not caused by the uncommitted local changes.
-- `node tools/blob-publish/publish.mjs` -> **exit 1**, 359/361 files, 136.3 MB, 1m38s. Two
-  telemetry files failed with `Response body object should not be disturbed or locked`.
+  `index.json` (`web/src/data.ts`), so the app renders from Blob today. **(still true)**
+- `pipeline.check --root data/export` **FAILED**: `tel/VER gear` (r9 British) and `tel/NOR gear`
+  (r12 Dutch) carried values above 8 (up to 43), pre-existing in the committed checker
+  (`GEAR_RANGE = (0, 8)`, `pipeline/check.py:35`). **FIXED by `c0a97b0`** (a parallel session):
+  impossible `nGear` is nulled at export with a declared warning, `GEAR_RANGE` stays strict, and the
+  check now exits `OK: all artifacts under data/export satisfy the contract` over all 15 races.
+- `node tools/blob-publish/publish.mjs` -> **exit 1**, 359/361 files, 136.3 MB, 1m38s, two telemetry
+  files failing with `Response body object should not be disturbed or locked`. **FIXED by `9ff5ead`**
+  (replayable `Buffer` body) plus `1bc43d0` (index merge); two consecutive runs now exit 0 at 361/361.
 
 ## Contract decision at the gate (user)
 
