@@ -45,3 +45,25 @@ export function trackBounds(
   }
   return { minX, maxX, minY, maxY };
 }
+
+/** Degraded-artifact fallback: when the track has no geometry (race.json
+ * exported with an empty `track.points`, see the exporter's degradation
+ * policy) the canvas view is fitted to the CARS instead. This computes the
+ * rotated bounding box of every known car position (all non-null sample
+ * pairs, so the view is stable while the clock runs) and returns null when
+ * no car ever reported a position. */
+export function carPositionsBounds(
+  cars: { x: (number | null)[]; y: (number | null)[] }[],
+  rotationDeg: number,
+): Bounds | null {
+  const pts: [number, number][] = [];
+  for (const car of cars) {
+    for (let i = 0; i < car.x.length; i++) {
+      const x = car.x[i];
+      const y = car.y[i];
+      if (x != null && y != null) pts.push([x, y]);
+    }
+  }
+  if (pts.length === 0) return null;
+  return trackBounds(pts, rotationDeg);
+}

@@ -26,6 +26,13 @@ DATA MODIFICATIONS, ALWAYS RECORDED IN race.json ``warnings``:
   0-100 range (104 on 2026 R15). Throttle is clipped to [0, 100] and the
   number of clipped samples is counted and reported in a ``warnings``
   entry, so the silent modification the contract forbids is impossible.
+- **Gear nulling.** The raw feed also carries impossible ``nGear`` values
+  (up to 63 on 2026 R9, 40 on R12). Gear is a DISCRETE, enumerable state
+  (0 = neutral, 1-8 = forward gears): a value of 63 or 9 is not a real
+  gear, and clipping it to 8 would fabricate "8th gear". Out-of-range
+  gear values are therefore set to ``null`` (unknown), counted, and
+  reported in a ``warnings`` entry. See the null-versus-clip note at
+  ``GEAR_RANGE`` below for why this deliberately differs from throttle.
 - **DRS binarization.** The contract pins ``drs`` to {0, 1}; the feed is
   already numeric, and any positive code (some feeds carry 2/3/8-style
   state codes) is mapped to 1. On the reference session the feed is 0 for
@@ -45,6 +52,18 @@ from .grid import Grid
 from .replay import _is_retired
 
 THROTTLE_MAX = 100
+# Physical gear range: 0 = neutral, 1-8 = forward gears. The raw feed can
+# carry impossible values (up to 63).
+GEAR_MIN = 0
+GEAR_MAX = 8
+
+# NULL-VERSUS-CLIP RULE (do not "fix" the asymmetry with throttle):
+# Throttle is a CONTINUOUS quantity, so a raw 104 is a sensor overshoot
+# around a meaningful scale maximum — clipping to 100 preserves the true
+# reading ("full throttle"). Gear is a DISCRETE, enumerable state: a raw
+# 9 or 63 is not near any real gear, and clipping it to 8 would assert
+# "8th gear", a fabrication. Out-of-range gear values are therefore
+# nulled (unknown) and declared, never clipped.
 
 CHANNELS = ("throttle", "brake", "rpm", "gear", "drs")
 
@@ -76,13 +95,14 @@ def write_telemetry(session, grid: Grid, tel_dir) -> list[str]:
 
     The warnings MUST end up in race.json's ``warnings`` array: they
     declare every modification applied to the raw feed (throttle clipping,
-    all-zero DRS).
+    gear nulling, all-zero DRS).
     """
     results = session.results
     tel_dir = Path(tel_dir)
     tel_dir.mkdir(parents=True, exist_ok=True)
 
     total_clipped = 0
+    total_gear_nulled = 0
     drs_nonzero_seen = False
 
     for number in session.drivers:  # one driver at a time, released below
@@ -105,6 +125,13 @@ def write_telemetry(session, grid: Grid, tel_dir) -> list[str]:
             if (raw_drs > 0).any():
                 drs_nonzero_seen = True
 
+            raw_gear = car["nGear"].to_numpy(dtype=float)
+            # Discrete channel: out-of-range values are impossible states,
+            # not overshoots — null them (see NULL-VERSUS-CLIP RULE above).
+            gear_bad = (raw_gear < GEAR_MIN) | (raw_gear > GEAR_MAX)
+            total_gear_nulled += int(gear_bad.sum())
+            gear = np.where(gear_bad, np.nan, raw_gear)
+
             channels = {
                 "throttle": grid.resample(times, throttle, f"{number} throttle"),
                 "brake": grid.resample(
@@ -113,9 +140,7 @@ def write_telemetry(session, grid: Grid, tel_dir) -> list[str]:
                 "rpm": grid.resample(
                     times, car["RPM"].to_numpy(dtype=float), f"{number} rpm"
                 ),
-                "gear": grid.resample(
-                    times, car["nGear"].to_numpy(dtype=float), f"{number} gear"
-                ),
+                "gear": grid.resample(times, gear, f"{number} gear"),
                 # Contract: drs in {0, 1}. Positive feed codes binarize to 1;
                 # the feed is numeric already, so this is lossless on {0,1}.
                 "drs": grid.resample(times, (raw_drs > 0).astype(float), f"{number} drs"),
@@ -139,6 +164,13 @@ def write_telemetry(session, grid: Grid, tel_dir) -> list[str]:
             f"telemetry: throttle clipped to [0, {THROTTLE_MAX}] on "
             f"{total_clipped} sample(s) inside the trimmed racing window; "
             "the raw feed exceeds the contract range"
+        )
+    if total_gear_nulled:
+        warnings.append(
+            f"telemetry: gear values outside [{GEAR_MIN}, {GEAR_MAX}] set to "
+            f"null on {total_gear_nulled} sample(s) inside the trimmed racing "
+            "window; the raw feed contained impossible gear states, which are "
+            "kept unknown rather than clipped to a plausible-looking value"
         )
     if not drs_nonzero_seen:
         warnings.append(

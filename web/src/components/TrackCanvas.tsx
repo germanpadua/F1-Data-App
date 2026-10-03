@@ -1,20 +1,23 @@
 import { useEffect, useMemo, useRef } from "react";
-import { rotatePoint, trackBounds } from "../geometry";
+import { carPositionsBounds, rotatePoint, trackBounds } from "../geometry";
 import { carPoseAt } from "../replay";
 import type { CarSeries, RaceManifest } from "../types";
 
 const LABEL_L = "#e8eaed";
 
-/** Rotated static geometry for one race: centreline polyline and corner labels. */
+/** Rotated static geometry for one race: centreline polyline and corner labels.
+ * Tolerates the degraded shape (empty points, absent corners, rotation 0) the
+ * exporter produces when the track cannot be built. */
 function useTrackGeometry(race: RaceManifest) {
   return useMemo(() => {
     const deg = race.track.rotation_deg;
-    const line = race.track.points.map(([x, y]) => rotatePoint(x, y, deg));
-    const corners = race.track.corners.map((c) => {
+    const points = race.track.points ?? [];
+    const line = points.map(([x, y]) => rotatePoint(x, y, deg));
+    const corners = (race.track.corners ?? []).map((c) => {
       const [x, y] = rotatePoint(c.x, c.y, deg);
       return { label: `${c.number}${c.letter}`, x, y };
     });
-    const bounds = trackBounds(race.track.points, deg);
+    const bounds = trackBounds(points, deg);
     return { line, corners, bounds };
   }, [race]);
 }
@@ -23,7 +26,10 @@ function useTrackGeometry(race: RaceManifest) {
  * race.json track.points rotated by track.rotation_deg exactly like
  * modules/utils.py rotate(); every car is one marker in its driver color with
  * its code, drawn at the interpolated pose for the current clock time. A car
- * whose samples are null is NOT drawn — a retired car disappears. */
+ * whose samples are null is NOT drawn — a retired car disappears. When the
+ * artifact is degraded (track.points empty, e.g. circuit metadata unavailable)
+ * no road is drawn and the view is fitted to the car positions instead, so
+ * the cars remain visible. */
 export function TrackCanvas({
   race,
   cars,
@@ -50,16 +56,27 @@ export function TrackCanvas({
 
     const { line, corners, bounds } = geometry;
     const pad = 34;
-    const spanX = bounds.maxX - bounds.minX || 1;
-    const spanY = bounds.maxY - bounds.minY || 1;
+    // Degraded path: no centreline means the track bounds are meaningless
+    // (Infinity); fit the view to the cars instead so they stay visible.
+    const view =
+      line.length > 0
+        ? bounds
+        : (carPositionsBounds(cars, race.track.rotation_deg) ?? {
+            minX: 0,
+            maxX: 0,
+            minY: 0,
+            maxY: 0,
+          });
+    const spanX = view.maxX - view.minX || 1;
+    const spanY = view.maxY - view.minY || 1;
     const scale = Math.min((width - 2 * pad) / spanX, (height - 2 * pad) / spanY);
     const offX = (width - spanX * scale) / 2;
     const offY = (height - spanY * scale) / 2;
     // Canvas y grows downwards; the artifact's y grows upwards, so flip it.
-    const px = (x: number) => offX + (x - bounds.minX) * scale;
-    const py = (y: number) => height - (offY + (y - bounds.minY) * scale);
+    const px = (x: number) => offX + (x - view.minX) * scale;
+    const py = (y: number) => height - (offY + (y - view.minY) * scale);
 
-    // Centreline.
+    // Centreline (absent in the degraded path: no road is drawn).
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     if (line.length > 1) {

@@ -166,6 +166,21 @@ exactly `n_samples` long: `throttle`, `brake`, `rpm`, `gear`, `drs`.
 - `brake` — 0 or 1. `drs` — 0 or 1.
 - `rpm` — integer (plausible range checked 0-18 000). `gear` — integer 0-8
   (0 = neutral).
+- **Null-versus-clip rule.** Continuous quantities are clipped; discrete,
+  enumerable states are nulled. A raw throttle of 104 is a sensor overshoot
+  around a meaningful scale maximum, so clipping to 100 preserves the true
+  reading ("full throttle"). A raw gear of 9 or 63 is not near any real gear
+  — clipping it to 8 would fabricate "8th gear" — so out-of-range gear
+  values are set to `null` (unknown), counted, and declared. Never clip a
+  discrete channel and never null a continuous one without a warning.
+- `gear` — the raw feed carries impossible `nGear` values (up to 63 on 2026
+  round 9, 40 on round 12). Those samples are exported as `null` and
+  `race.json` carries a `telemetry:` gear-null warning with the range and
+  the count. The self-check still rejects any out-of-range gear value (the
+  range is NOT widened — the range check is what caught the defect), and
+  additionally requires that a race whose gear channel carries nulls at
+  samples where `rpm` still has data (the signature of an erased impossible
+  state) declares the warning, so the correction cannot be silent.
 - `drs` — **0 for every sample of the reference race's feed.** The channel is
   kept, but `race.json` carries a warning saying it must NOT be read as a
   reliable DRS state. Do not infer DRS from it.
@@ -195,6 +210,11 @@ exactly `n_samples` long: `throttle`, `brake`, `rpm`, `gear`, `drs`.
   come from a richer source or a later feed.
 - **Clipped throttle**: 410 raw samples above 100 in the reference race;
   exact counts are in `warnings`.
+- **Impossible gear values**: the raw feed carries `nGear` states outside
+  0-8 (up to 63 on 2026 round 9, 40 on round 12). Gear is a discrete state,
+  so those samples are nulled, never clipped (see the null-versus-clip rule
+  above); counts are in `warnings`, and `pipeline/check.py` refuses any
+  out-of-range gear value plus any undeclared gear-null-with-rpm-data.
 - **Dropped out-of-window events**: 57 pre-race/post-race events on the
   reference race, counted in `warnings`.
 - **Null gaps**: retirement cutoffs and data dropouts, by design (see null

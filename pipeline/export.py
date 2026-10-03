@@ -61,6 +61,11 @@ def _racing_window_s(session) -> tuple[float, float]:
     return t0_s, t_end_s
 
 
+def _empty_track() -> dict:
+    """Degraded track payload: no geometry, no metadata, drawn unrotated."""
+    return {"points": [], "rotation_deg": 0.0, "corners": []}
+
+
 def _build_race_manifest(session, grid: Grid, year: int, round_number: int,
                          session_code: str, telemetry_warnings: list[str]) -> dict:
     event = session.event
@@ -80,13 +85,36 @@ def _build_race_manifest(session, grid: Grid, year: int, round_number: int,
 
     total_laps = int(session.laps["LapNumber"].max())
 
-    events, event_warnings = events_mod.build_events(session, grid)
+    # Degradation policy (Phase 1): an ENRICHMENT that fails degrades to an
+    # empty section plus a warning in race.json; the CORE (the session, the
+    # lap data, the racing window, the replay traces) is deliberately NOT
+    # wrapped — a replay that silently exports as empty is worse than a
+    # failed round, so those failures still abort the export loudly.
+    try:
+        track = track_mod.build_track(session)
+        track_warnings = track.pop("warnings", [])
+    except Exception as exc:  # noqa: BLE001 — the race must still export
+        track = _empty_track()
+        track_warnings = [
+            "track: circuit map could not be built from this session "
+            f"({exc}); the race is exported without track geometry"
+        ]
+
+    try:
+        events, event_warnings = events_mod.build_events(session, grid)
+    except Exception as exc:  # noqa: BLE001 — the race must still export
+        events, event_warnings = [], [
+            "events: timeline could not be built "
+            f"({exc}); the race is exported without events"
+        ]
+
     timing, timing_warnings = timing_mod.build_timing(session)
 
     # P1.6 telemetry warnings declare every modification applied to the raw
     # feed (throttle clipping, all-zero DRS) so none of it is silent.
     warnings = [
         *telemetry_warnings,
+        *track_warnings,
         *event_warnings,
         *timing_warnings,
     ]
@@ -108,7 +136,7 @@ def _build_race_manifest(session, grid: Grid, year: int, round_number: int,
         "n_samples": grid.n_samples,
         "total_laps": total_laps,
         "drivers": drivers,
-        "track": track_mod.build_track(session),
+        "track": track,
         "timing": timing,
         "events": events,
         "warnings": warnings,
@@ -134,10 +162,18 @@ def export_race(year: int, round_number: int, session_code: str,
     destination.mkdir(parents=True, exist_ok=True)
 
     # P1.6: telemetry first, so its warnings (throttle clipping, all-zero
-    # DRS) can be embedded in race.json before it is written.
-    telemetry_warnings = telemetry_mod.write_telemetry(
-        session, grid, destination / layout.TEL_DIRNAME
-    )
+    # DRS) can be embedded in race.json before it is written. A telemetry
+    # failure is an enrichment failure: it degrades to absent tel/ files
+    # plus a warning, it does not abort the round.
+    try:
+        telemetry_warnings = telemetry_mod.write_telemetry(
+            session, grid, destination / layout.TEL_DIRNAME
+        )
+    except Exception as exc:  # noqa: BLE001 — the race must still export
+        telemetry_warnings = [
+            "telemetry: per-driver telemetry could not be exported "
+            f"({exc}); the tel/ files are absent for this race"
+        ]
 
     race = _build_race_manifest(
         session, grid, year, round_number, session_code, telemetry_warnings

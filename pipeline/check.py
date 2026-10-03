@@ -15,6 +15,9 @@ Amendment 1):
 - tel/<DRIVER>.json telemetry: schema, code/filename agreement, the
   n_samples invariant on every channel, and the per-channel value ranges —
   plus the SET of tel/ files matching the driver list in race.json exactly;
+  a gear null at a sample where rpm still has data (an erased impossible
+  gear state) must be declared by a 'telemetry:' gear-null warning in
+  race.json, like every other degradation;
 - index.json agrees with what is actually on disk (dirs, metadata, sizes).
 
 Prints every failure found and exits non-zero if there was any.
@@ -155,6 +158,23 @@ def check_race_dir(race_path: Path, failures: Failures) -> None:
         failures.add(f"{what}: invalid n_samples {n!r}")
         return
 
+    warnings = race.get("warnings") or []
+
+    # Degraded artifacts must be declared, never silent: a race whose track
+    # carries no geometry is valid ONLY when a 'track:' warning in race.json
+    # explains the absence (see pipeline/track.py and the exporter's
+    # degradation policy). Everything else above stays exactly as strict.
+    track = race.get("track")
+    points = track.get("points") if isinstance(track, dict) else None
+    if not (isinstance(points, list) and len(points) > 0):
+        if not any(
+            isinstance(w, str) and w.startswith("track:") for w in warnings
+        ):
+            failures.add(
+                f"{what}: race has no track geometry but no 'track:' warning "
+                "in race.json explains the absence"
+            )
+
     # Events must be time-ordered and carry a contract kind.
     events = race.get("events") or []
     last_t = None
@@ -221,10 +241,19 @@ def check_race_dir(race_path: Path, failures: Failures) -> None:
     tel_dir = race_path / layout.TEL_DIRNAME
     driver_codes = [d.get("code") for d in race.get("drivers") or []]
     if not tel_dir.is_dir():
-        failures.add(
-            f"{what}: no tel/ directory although per-driver telemetry (P1.6) "
-            "is implemented"
+        # An enrichment failure may legitimately leave tel/ absent — but only
+        # when the exporter declared the degradation in the warnings.
+        telemetry_declared = any(
+            isinstance(w, str)
+            and w.startswith("telemetry:")
+            and "could not be exported" in w
+            for w in warnings
         )
+        if not telemetry_declared:
+            failures.add(
+                f"{what}: no tel/ directory although per-driver telemetry (P1.6) "
+                "is implemented"
+            )
     else:
         tel_on_disk = {p.stem for p in tel_dir.glob("*.json")}
         expected = set(driver_codes)
@@ -236,6 +265,13 @@ def check_race_dir(race_path: Path, failures: Failures) -> None:
             failures.add(
                 f"{what}: tel/ has files not in race.json drivers: {extra}"
             )
+        # Gear nulls are legal (retirement cutoffs, dropouts), but a gear
+        # null is only natural where the WHOLE source row is missing. A gear
+        # null at a sample where rpm still has data means an impossible raw
+        # gear state was erased — a correction that must be declared in
+        # race.json, exactly like absent track geometry (mirrors the rule
+        # above; see pipeline/telemetry.py, NULL-VERSUS-CLIP RULE).
+        gear_erased_with_data = False
         for tel_path in sorted(tel_dir.glob("*.json")):
             code = tel_path.stem
             tel = _load_json(tel_path, failures, f"{what} tel/{code}")
@@ -264,6 +300,24 @@ def check_race_dir(race_path: Path, failures: Failures) -> None:
                     tel[channel], n, failures, f"tel/{code} {channel}",
                     lo=lo, hi=hi, binary=binary,
                 )
+            if "gear" in tel and "rpm" in tel:
+                for g, r in zip(tel["gear"], tel["rpm"]):
+                    if g is None and r is not None:
+                        gear_erased_with_data = True
+                        break
+        if gear_erased_with_data and not any(
+            isinstance(w, str)
+            and w.startswith("telemetry:")
+            and "gear" in w
+            and "null" in w
+            for w in warnings
+        ):
+            failures.add(
+                f"{what}: tel gear channel has nulls at samples where rpm "
+                "still has data (an impossible raw gear state was erased) but "
+                "no 'telemetry:' gear-null warning in race.json declares the "
+                "correction"
+            )
 
 
 def check_root(root: Path) -> Failures:
