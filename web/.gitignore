@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local mirror of the gitignored data/export artifacts (symlink or copy made
+# by `npm run data:link`). Never committed: the real artifacts live outside
+# the repository's tracked content and in production come from Vercel Blob.
+public/data/
