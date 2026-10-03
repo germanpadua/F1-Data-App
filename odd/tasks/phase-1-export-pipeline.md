@@ -34,8 +34,10 @@ Every time-indexed array in every artifact shares one grid. This is what makes t
 a sample is addressed by a single integer, and the replay clock, the timing tower and the telemetry
 charts all advance together.
 
-- `t0_s` — the session reference instant, in seconds. `0` is the start of the session (`R` = race
-  start).
+- `t0_s` — the session reference instant, in seconds. Originally documented as `0` meaning the start of
+  the session; **amended by Amendment 1** to be the session-relative second at which the trimmed racing
+  grid starts. It is written to the artifact and the frontend needs it to map a grid index back to a
+  session time.
 - `step_s` — the fixed step, default `0.5`.
 - `sample_index = round((t_s - t0_s) / step_s)`
 - `n_samples` — the grid length, identical for every array in every artifact of the same race.
@@ -51,7 +53,8 @@ valid and very different value (0 km/h is a stopped car, 0 % throttle is a lift)
 
 ### Quantization
 
-- `x`, `y` — integers, exactly as FastF1 provides them (tenths of a metre). Never floats.
+- `x`, `y` — integers, exactly as FastF1 provides them (tenths of a metre). Never floats. **Amended by
+  Amendment 1: delta-encoded in `replay.json`** (`x[0]` absolute, then differences).
 - `speed` — integer km/h.
 - `throttle` — integer percent, 0-100.
 - `brake`, `drs` — integers, 0 or 1.
@@ -159,6 +162,55 @@ one, and the per-driver telemetry files are fetched only when a driver is select
 ```
 
 Each channel array is exactly `n_samples` long.
+
+## Amendments
+
+### Amendment 1 — trim the grid to the racing window, and delta-encode x/y
+
+Raised by the P1.1/P1.2/P1.3 implementation, which measured the first real export.
+
+**Problem.** `n_samples` came out at **19 434** on 2026 round 15, because the session-relative `Time`
+axis starts at the beginning of the session and includes roughly 57 minutes of pre-race running. The
+race itself is about 105 minutes. `replay.json` measured **7.18 MB** for that race, which extrapolates
+to about **172 MB for a 24-race season** — too heavy to be the input of a static site.
+
+**A1a — the grid covers the racing window only.**
+
+- Grid origin: the earliest `LapStartTime` across drivers, which is the leader's lap 1 and therefore
+  approximately lights out.
+- Grid end: the latest lap end across drivers plus a 5 s margin.
+- `t0_s` is now meaningful and MUST be written: the session-relative seconds at which the grid starts.
+  It was previously documented as `0.0`; it is now the offset the frontend needs in order to map a
+grid index back to a session time for events and timing data.
+- `n_samples` shrinks accordingly. Expect roughly 12 000-13 000 for a normal race.
+
+**A1b — `x` and `y` are delta-encoded.** `x[0]` and `y[0]` are absolute; every later value is the
+integer difference from the previous sample. A smooth position series becomes small integers, which
+compresses far better on the wire. The frontend recovers the series with a prefix sum, which is a few
+lines. `speed` stays absolute because it is already a small bounded range.
+
+Both changes must be reflected in `pipeline/check.py`: the length invariant is unchanged, but the
+range check must run on the reconstructed series, not the deltas, or a delta of 200 would be wrongly
+rejected.
+
+**A1c — channels recorded from the implementation.** These are verified against real 2026 data and
+supersede guesswork:
+
+| Data | Column notes |
+|---|---|
+| Laps | `LapTime`, `LapNumber`, `Compound`, `TyreLife`, `PitInTime`, `PitOutTime`, `Position`, `LapStartTime`, `TrackStatus` |
+| Track status | `Time` is a Timedelta (session-relative), plus `Status` and `Message` |
+| Race control | `Time` is an **absolute datetime64**, NOT a Timedelta. It must be converted with `Time - session.t0_date`. `t0_date` is safe as an axis *converter* here and remains forbidden as the grid origin |
+| Position data | `SessionTime`, `X`, `Y`, `Status` |
+| Car data | `SessionTime`, `RPM`, `Speed`, `nGear`, `Throttle`, `Brake`, `DRS` |
+
+Two further findings from the same run:
+
+- **Raw `Throttle` reaches 104** in the feed, above the contract's 0-100. P1.6 must clip to 0-100 and
+  record the clipping in `warnings`.
+- **`DRS` is 0 for every sample** of this session's feed. The channel will be legitimately all-zero; it
+  must not be dropped or treated as missing, and the frontend must not infer DRS state from it as if it
+  were reliable.
 
 ## Tasks
 
