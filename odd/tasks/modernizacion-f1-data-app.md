@@ -88,10 +88,15 @@ Guard: Phase 0 must not grow into a full refactor. Scope is limited to the seven
   the known limitations, and an explicit answer to the Vercel question. Plus `.streamlit/config.toml`.
   Verified: TOML parses, and `streamlit run main_app.py` boots and answers
   `GET /_stcore/health` with HTTP 200 `ok`.
-- [ ] **T7 — Git history purge.** AUTHORIZED by the user on 2026-10-03 ("purge it if you can").
-  Rewrite history with `git-filter-repo` to drop every `cache/` and `circuito_prueba` blob,
-  reducing `.git` from 733 MB, then force push. A backup bundle is written outside the repository
-  before the rewrite. Evidence: `du -sh .git` after purge; `git log --oneline` sanity check.
+- [x] **T7 — Git history purge.** DONE LOCALLY (2026-10-03). Backup bundle of the pre-purge state was written
+  outside the repository first (`~/f1-data-app-pre-purge-20261003-0840.bundle`, 733 MB). Then
+  `git filter-repo --force --invert-paths --path cache/ --path circuito_prueba`.
+  Result: **`.git` went from 736 MB to 3.4 MB**, zero `cache/` or `circuito_prueba` objects remain in
+  history, working-tree files are intact (`circuito_prueba` still on disk at 94 MB, `cache/` still
+  populated), the tree is clean and every module still imports.
+  Note: `filter-repo` removes the `origin` remote as a safety measure, so it was re-added.
+  **All commit hashes below are the post-purge ones**; the pre-purge hashes no longer exist.
+  **The remote swap is BLOCKED** — see Blockers below.
 - [x] **T8 — Close the three native-review findings.** DONE (commit `d1ac7a0`). See the review record
   below. Verified: the 2026 per-round totals still match the API exactly, the all-rounds-fail path
   returns `(None, None, None)` without raising, and an injected empty round 8 no longer truncates
@@ -158,6 +163,66 @@ is the variant to avoid.
 Under the full scope, the Streamlit path is definitively not viable for layers 1-3. Phase 2 is the
 web frontend, reusing the `telemetry-sentinel` `web/` skeleton.
 
+## Blockers and open human decisions
+
+Two things could not be completed by the agent and are recorded rather than worked around.
+
+### B1 — The native review relay is broken (the new candidate is UNREVIEWED)
+
+The candidate made of the T8 fixes plus the review-receipt documentation could not be reviewed. The
+reviewer relay returned `pi-host-relay-transport-failure` with kind `reviewer-empty-output` and
+`stopReason: length` — no text, and `mutation_performed: false` every time. Three attempts:
+
+| Attempt | Candidate | Result |
+|---|---|---|
+| 1 | whole branch vs `main` (32 paths, 801 lines) | failed after 125 s |
+| 2 | the same exact binding, retried | failed after **900 ms** |
+| 3 | narrowed to 3 paths, 263 lines (`f087157..HEAD`) | failed after 155 s |
+
+The same relay had succeeded earlier in the same session on a 776-line candidate, so it degraded
+mid-session. Because the failure is identical on a candidate five times smaller, the cause is the
+transport, not the review scope. No verdict was invented and no capture was replayed from
+transcript inference.
+
+Left durable in `reviewing` with an uncollected slot: lineages `review-d723645f3c4c3475` (target
+`sha256:bf8cebe0bca21c488f3410c85a5d8f1ef301a86c86600d7f5748923267b05bf2`) and
+`review-4d2c653830a2cded` (target `sha256:69e7da55be980c98f7b0e9cd1c5cc8210dbe40db57ad570af1142852914a4ea2`).
+
+Human decision required: diagnose or retry the relay, re-scope, or `gentle-ai review mode disable
+--scope clone`. The review switch was deliberately NOT disabled by the agent, because that is the
+user's policy decision.
+
+### B2 — The force push is blocked by the harness safety policy
+
+Both `git push --force origin main` and `git push --force-with-lease origin main` were rejected with
+"Gentle AI safety policy blocked a destructive shell command". The policy was not circumvented: setting
+`push.force=true` to obtain the same effect would be evading a guardrail, not satisfying it.
+
+What was done instead, all non-destructive:
+
+- `feat/phase-0-modernization` was pushed normally BEFORE the purge, so the pre-purge commits are
+  safe on the remote (`1775b9b`).
+- the rewritten `main` was pushed to a NEW ref, `main-purged`, so the purged history is off-machine.
+
+Remote state after this session:
+
+| Ref | Commit | Note |
+|---|---|---|
+| `origin/main` | `d50b03c` | still the pre-purge history, still carrying the blobs |
+| `origin/feat/phase-0-modernization` | `1775b9b` | pre-purge branch |
+| `origin/main-purged` | `d30d4e8` | the rewritten, purged history |
+
+**One human action remains**, from a local clone that has the purged history:
+
+```bash
+git push --force-with-lease origin main
+git push --force-with-lease origin feat/phase-0-modernization
+git push origin --delete main-purged   # optional cleanup
+```
+
+Honest caveat: GitHub may retain the now-unreachable objects for some time until its own garbage
+collection runs, so the repository may not shrink on GitHub the moment the force push lands.
+
 ## Native review record
 
 The phase-0 candidate went through the native review lifecycle on 2026-10-03.
@@ -201,14 +266,16 @@ Work-unit commits happen on the feature branch; record the commit identity here 
 
 | Task | Commit | Message |
 |------|--------|---------|
-| bookkeeping | `2cfa56f` | `chore(odd): track phase-0 modernization feature document` |
-| T2 | `32fe492` | `chore(repo): add real .gitignore and untrack FastF1 cache and debug dump` |
-| T1 | `b63dfcf` | `chore(deps): pin direct dependencies and add missing timple, pillow, requests` |
-| T3 + T5 | `eea7eda` | `fix(app): support 2025-2026 seasons and fix session cache, geocoding and map output` |
-| T4 | `fdb3f8a` | `feat(championship): rebuild the standings charts from cumulative standings` |
-| T6 | `24dea33` | `docs: add a real README and a Streamlit theme baseline` |
-| bookkeeping | `f6653ae` | `chore(odd): close phase-0 tasks T3-T6 with commit evidence` |
-| T8 | `d1ac7a0` | `fix(championship): close the three reliability findings from the native review` |
+| bookkeeping | `856d757` | `chore(odd): track phase-0 modernization feature document` |
+| T2 | `6914f43` | `chore(repo): add real .gitignore and untrack FastF1 cache and debug dump` |
+| T1 | `0cad1fd` | `chore(deps): pin direct dependencies and add missing timple, pillow, requests` |
+| T3 + T5 | `9893251` | `fix(app): support 2025-2026 seasons and fix session cache, geocoding and map output` |
+| T4 | `f0d1b2d` | `feat(championship): rebuild the standings charts from cumulative standings` |
+| T6 | `8dd1946` | `docs: add a real README and a Streamlit theme baseline` |
+| bookkeeping | `f087157` | `chore(odd): close phase-0 tasks T3-T6 with commit evidence` |
+| T8 | `6ec77b5` | `fix(championship): close the three reliability findings from the native review` |
+| T9 | `786827f` | `chore(odd): record the native review receipt and close T8` |
+| T7 | (history rewrite, no new commit) | `git filter-repo --invert-paths --path cache/ --path circuito_prueba` |
 
 Local git identity was unset in this clone, so `user.name` / `user.email` were set **repo-locally**
 (not globally) to match the existing history (`germanpadua <german8adaba@gmail.com>`).
