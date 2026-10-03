@@ -5,13 +5,16 @@ Amendment 1):
 - JSON parses and the declared schema identifier matches;
 - every array declared to be n_samples long is exactly that long;
 - numeric ranges are plausible (speed 0-400, throttle 0-100, brake and drs
-  in {0, 1}, position >= 1), x/y are integers;
+  in {0, 1}, rpm 0-18000, gear 0-8, position >= 1), x/y are integers;
 - DELTA ENCODING: replay x/y are stored delta-encoded (Amendment 1, A1b),
   so range validation runs on the RECONSTRUCTED series (running sum over
   non-null entries; first non-null value absolute; nulls transparent to the
   chain) — never on the raw deltas, a legitimate delta of 200 would
   otherwise be wrongly rejected against an absolute bound;
 - events are time-ordered and their ``kind`` is from the contract set;
+- tel/<DRIVER>.json telemetry: schema, code/filename agreement, the
+  n_samples invariant on every channel, and the per-channel value ranges —
+  plus the SET of tel/ files matching the driver list in race.json exactly;
 - index.json agrees with what is actually on disk (dirs, metadata, sizes).
 
 Prints every failure found and exits non-zero if there was any.
@@ -26,6 +29,10 @@ from . import layout, schemas
 
 SPEED_RANGE = (0, 400)
 THROTTLE_RANGE = (0, 100)
+# Plausible ranges for the telemetry channels (P1.6). F1 engines rev well
+# below 18 000 and have 8 forward gears plus neutral (0).
+RPM_RANGE = (0, 18_000)
+GEAR_RANGE = (0, 8)
 # Reconstructed x/y absolute bound, in tenths of a metre. Real circuit
 # coordinates stay within a few tens of thousands; 1 000 000 (100 km) is far
 # outside any circuit, so a corrupt delta chain lands here.
@@ -209,13 +216,32 @@ def check_race_dir(race_path: Path, failures: Failures) -> None:
                 lo=SPEED_RANGE[0], hi=SPEED_RANGE[1],
             )
 
-    # tel/<DRIVER>.json (P1.6 may not have run yet; checked only if present)
+    # tel/<DRIVER>.json (P1.6): the set of files must match the driver list
+    # in race.json exactly, and every channel is validated per contract.
     tel_dir = race_path / layout.TEL_DIRNAME
-    if tel_dir.is_dir():
+    driver_codes = [d.get("code") for d in race.get("drivers") or []]
+    if not tel_dir.is_dir():
+        failures.add(
+            f"{what}: no tel/ directory although per-driver telemetry (P1.6) "
+            "is implemented"
+        )
+    else:
+        tel_on_disk = {p.stem for p in tel_dir.glob("*.json")}
+        expected = set(driver_codes)
+        missing = sorted(expected - tel_on_disk)
+        extra = sorted(tel_on_disk - expected)
+        if missing:
+            failures.add(f"{what}: tel/ is missing files for drivers: {missing}")
+        if extra:
+            failures.add(
+                f"{what}: tel/ has files not in race.json drivers: {extra}"
+            )
         for tel_path in sorted(tel_dir.glob("*.json")):
             code = tel_path.stem
             tel = _load_json(tel_path, failures, f"{what} tel/{code}")
-            if tel is None or not _check_schema(tel, schemas.SCHEMA_TEL, failures, f"tel/{code}"):
+            if tel is None or not _check_schema(
+                tel, schemas.SCHEMA_TEL, failures, f"tel/{code}"
+            ):
                 continue
             if tel.get("n_samples") != n:
                 failures.add(f"tel/{code}: n_samples {tel.get('n_samples')!r} != {n}")
@@ -226,8 +252,14 @@ def check_race_dir(race_path: Path, failures: Failures) -> None:
                     failures.add(f"tel/{code}: missing channel {channel!r}")
                     continue
                 binary = channel in ("brake", "drs")
-                lo, hi = (THROTTLE_RANGE if channel == "throttle"
-                          else (None, None))
+                if channel == "throttle":
+                    lo, hi = THROTTLE_RANGE
+                elif channel == "rpm":
+                    lo, hi = RPM_RANGE
+                elif channel == "gear":
+                    lo, hi = GEAR_RANGE
+                else:
+                    lo, hi = (None, None)
                 _check_channel(
                     tel[channel], n, failures, f"tel/{code} {channel}",
                     lo=lo, hi=hi, binary=binary,

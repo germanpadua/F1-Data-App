@@ -7,10 +7,11 @@ championship evolution.
 
 ## Status
 
-Phase 0 (repository hygiene, current-season data, reproducibility) is complete.
-The presentation layer is still Streamlit. A web frontend with a race replay and
-a precomputed data pipeline are planned as Phase 1 and Phase 2; the tracked plan
-lives in [`odd/tasks/modernizacion-f1-data-app.md`](odd/tasks/modernizacion-f1-data-app.md).
+Phase 0 (repository hygiene, current-season data, reproducibility) and Phase 1
+(the static export pipeline, see [pipeline/README.md](pipeline/README.md)) are
+complete. The presentation layer is still Streamlit; the Phase 2 web frontend
+with a race replay will read the precomputed artifacts. The tracked plan lives
+in [`odd/tasks/modernizacion-f1-data-app.md`](odd/tasks/modernizacion-f1-data-app.md).
 
 ## Requirements
 
@@ -48,6 +49,25 @@ minutes. Later loads are served from the local FastF1 cache in `cache/`.
 Offered seasons are 2018 through the current year, derived at runtime from the
 system date, so a new season needs no code change.
 
+## Data pipeline
+
+A Python pipeline turns each completed session into compact, versioned JSON
+artifacts under `data/export/` (gitignored): track geometry, replay traces,
+per-lap timing, timeline events and per-driver telemetry, all on one shared
+0.5 s time grid trimmed to the racing window.
+
+```bash
+.venv/bin/python -m pipeline.export --year 2026 --round 15 --session R
+.venv/bin/python -m pipeline.check --root data/export
+```
+
+The full data contract, artifact layout, measured sizes and the null/delta
+rules a frontend author must implement are documented in
+[`pipeline/README.md`](pipeline/README.md). A GitHub Actions workflow
+(`.github/workflows/export-latest-round.yml`) exports the most recently
+completed round daily; artifacts are uploaded as workflow artifacts and are
+never committed to the repository.
+
 ## Data sources
 
 - **Session timing and telemetry** — the official F1 live timing API via FastF1.
@@ -80,10 +100,11 @@ system date, so a new season needs no code change.
 
 ## Roadmap
 
-- **Phase 1** — a Python pipeline that exports compact per-race artifacts
-  (aggregated charts, plus positional telemetry, timing/strategy data, driver
-  telemetry channels and timeline events for the replay), run automatically after
-  each Grand Prix.
+- **Phase 1** (complete) — a Python pipeline that exports compact per-race
+  artifacts (track geometry, replay traces, timing/strategy data, per-driver
+  telemetry channels and timeline events for the replay) on a shared time grid,
+  with a self-check validator and a daily CI export of the latest completed
+  round; see [`pipeline/README.md`](pipeline/README.md).
 - **Phase 2** — a web frontend on Vercel with a race replay: 20 cars on the track
   map with a data clock, a timing tower with tyre strategy, synced driver
   telemetry, and flags/safety car events on the timeline.

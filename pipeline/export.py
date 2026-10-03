@@ -14,7 +14,8 @@ import pandas as pd
 import fastf1
 
 from . import events as events_mod
-from . import layout, replay as replay_mod, schemas, timing as timing_mod
+from . import layout, replay as replay_mod, schemas, telemetry as telemetry_mod
+from . import timing as timing_mod
 from . import track as track_mod
 from .grid import DEFAULT_STEP_S, Grid, compute_n_samples
 
@@ -45,7 +46,7 @@ def _racing_window_s(session) -> tuple[float, float]:
 
 
 def _build_race_manifest(session, grid: Grid, year: int, round_number: int,
-                         session_code: str) -> dict:
+                         session_code: str, telemetry_warnings: list[str]) -> dict:
     event = session.event
     results = session.results.sort_values("Position", na_position="last")
 
@@ -66,10 +67,10 @@ def _build_race_manifest(session, grid: Grid, year: int, round_number: int,
     events, event_warnings = events_mod.build_events(session, grid)
     timing, timing_warnings = timing_mod.build_timing(session)
 
-    # P1.6 is another pass. The contract shape is honoured and the gap is
-    # made visible through warnings instead of silent emptiness.
+    # P1.6 telemetry warnings declare every modification applied to the raw
+    # feed (throttle clipping, all-zero DRS) so none of it is silent.
     warnings = [
-        "per-driver telemetry (P1.6) not implemented yet; tel/ files are not written",
+        *telemetry_warnings,
         *event_warnings,
         *timing_warnings,
     ]
@@ -111,14 +112,25 @@ def export_race(year: int, round_number: int, session_code: str,
         t0_s=t0_s,
     )
 
-    race = _build_race_manifest(session, grid, year, round_number, session_code)
+    destination = layout.race_dir(
+        out_root, year, round_number, str(session.event["EventName"])
+    )
+    destination.mkdir(parents=True, exist_ok=True)
+
+    # P1.6: telemetry first, so its warnings (throttle clipping, all-zero
+    # DRS) can be embedded in race.json before it is written.
+    telemetry_warnings = telemetry_mod.write_telemetry(
+        session, grid, destination / layout.TEL_DIRNAME
+    )
+
+    race = _build_race_manifest(
+        session, grid, year, round_number, session_code, telemetry_warnings
+    )
     replay = replay_mod.build_replay(session, grid)
     replay["schema"] = schemas.SCHEMA_REPLAY
     replay["step_s"] = grid.step_s
     replay["n_samples"] = grid.n_samples
 
-    destination = layout.race_dir(out_root, year, round_number, race["event"])
-    destination.mkdir(parents=True, exist_ok=True)
     layout.atomic_write_json(destination / layout.RACE_FILENAME, race)
     layout.atomic_write_json(destination / layout.REPLAY_FILENAME, replay)
     return destination
