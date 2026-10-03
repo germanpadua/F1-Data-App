@@ -44,6 +44,8 @@ recovery path itself is impossible.
 | P2.4 | Reproduce and fix the `gear > 8` defect (r9 VER, r12 NOR): producer repair or documented contract widening | done by `c0a97b0` (parallel session): impossible gear is nulled with a warning |
 | P2.5 | Verify and fix the CI index risk: `rebuild_index` + a cold `f1-export-2026-*` cache can shrink the published `index.json` to one race | done: the publisher merges the published index (index-merge.mjs) and refuses a stale read |
 | P2.7 | Artifacts are overwritten in place while Blob serves `cache-control: public, max-age=2592000`, so a returning visitor can read a 30-day-old copy of a re-exported race | pending (finding, not yet fixed) |
+| P2.8 | The daily CI export cannot run on a GitHub-hosted runner: the F1 CDN answers `403 Forbidden` to every session stream | pending — an infrastructure decision, not a code fix |
+| P2.9 | Decide whether `.github/workflows/diagnose-f1-egress.yml` (temporary) stays as a troubleshooting tool or is deleted | pending |
 
 ## Verified after the fixes (evidence)
 
@@ -150,7 +152,36 @@ before it went fresh. The index was restored from `data/export/index.json` and r
 by race count. Nothing else in the store was touched, and the deployed app's read path was confirmed
 (`index.json`, `race.json`, `replay.json` all 200) after the restore.
 
-### P2.7 notes
+### P2.8 notes (measured on a runner, not guessed)
+
+The workflow's first-ever run failed in 15 s, before any export: `NotADirectoryError` from
+`fastf1.Cache.enable_cache`, because `actions/cache` does not create its path on a miss and git cannot
+track the empty `cache/` directory (fixed: an explicit `mkdir -p cache` step, plus the same fix in the
+diagnostic workflow, which hit the identical trap).
+
+The second run got past that and died on the data, three seconds in: FastF1 loaded the session object
+and every channel failed (`Failed to load session info data!`, `Car telemetry data is unavailable!`,
+`DataNotLoadedError`). The cause is environmental and now measured rather than assumed — a throwaway
+diagnostic workflow printed the raw HTTP result, locally and on the runner:
+
+| URL | local | GitHub-hosted runner |
+|---|---|---|
+| `.../2026-09-26_Azerbaijan_Grand_Prix/2026-09-26_Race/SessionInfo.jsonStream` | `200`, `server=AmazonS3` | **`403 Forbidden`**, `server=CloudFront` |
+| `.../2026-09-26_Azerbaijan_Grand_Prix/2026-09-26_Race/TimingData.jsonStream` | `200`, `server=AmazonS3` | **`403 Forbidden`**, `server=CloudFront` |
+| `.../2025-08-31_Dutch_Grand_Prix/2025-08-31_Race/SessionInfo.jsonStream` (2025) | `200` | **`403 Forbidden`**, `server=CloudFront` |
+| `fastf1.get_event_schedule(2026)` | 23 rows | 23 rows (works) |
+
+The block is not session-specific (2025 is blocked too), not a version problem (`requirements.txt`
+pins `fastf1==3.8.3`, the same version locally) and not a cache problem. The schedule fetch works
+because it reaches a different endpoint, which is why the `discover` step passes and everything after
+it fails.
+
+CONSEQUENCE: the export+publish workflow cannot succeed on a GitHub-hosted runner, by construction.
+The options, none of them a code change in this repository alone: run the export where the egress is
+allowed (self-hosted runner, a VPS, or a machine with a residential IP), route FastF1's requests
+through a proxy whose IP is allowed (`requests` honours `HTTPS_PROXY`, so the export step could take
+one from a secret), or drop the CI export and keep the repository's export as a local/manual step —
+which the publisher's idempotence and index merge now make safe to re-run at any time.
 
 Every artifact pathname is overwritten in place on a re-export while Blob serves
 `cache-control: public, max-age=2592000`. A browser that cached `replay.json` keeps serving that
