@@ -63,13 +63,15 @@ per-lap timing, timeline events and per-driver telemetry, all on one shared
 
 The full data contract, artifact layout, measured sizes and the null/delta
 rules a frontend author must implement are documented in
-[`pipeline/README.md`](pipeline/README.md). A GitHub Actions workflow
-(`.github/workflows/export-latest-round.yml`) exports the most recently
-completed round daily, self-checks the artifacts, uploads them as workflow
-artifacts (never committed to the repository), and publishes the declared
-published season (2026, see [`pipeline/scope.py`](pipeline/scope.py)) to
-Vercel Blob via `tools/blob-publish/publish.mjs` — the latter skipped with a
-clear message when the `BLOB_READ_WRITE_TOKEN` secret is absent. A backfill
+[`pipeline/README.md`](pipeline/README.md). Exporting and publishing are
+**local steps, not CI jobs**: the F1 CDN answers `403 Forbidden` to every
+session stream from a GitHub-hosted runner (measured; see
+[`odd/tasks/phase-2-publish-hardening.md`](odd/tasks/phase-2-publish-hardening.md)),
+so CI runs the test suites and nothing that needs F1 data. Publishing the
+declared published season (2026, see [`pipeline/scope.py`](pipeline/scope.py))
+to Vercel Blob is `node tools/blob-publish/publish.mjs` with
+`BLOB_READ_WRITE_TOKEN` in the environment, and re-running it is safe: it
+overwrites the same pathnames and merges the published index. A backfill
 command exports every completed round of a season in one resumable run:
 `python -m pipeline.export --year 2026 --all-completed`.
 
@@ -108,8 +110,8 @@ command exports every completed round of a season in one resumable run:
 - **Phase 1** (complete) — a Python pipeline that exports compact per-race
   artifacts (track geometry, replay traces, timing/strategy data, per-driver
   telemetry channels and timeline events for the replay) on a shared time grid,
-  with a self-check validator and a daily CI export of the latest completed
-  round; see [`pipeline/README.md`](pipeline/README.md).
+  with a self-check validator and a local publish step to Vercel Blob; see
+  [`pipeline/README.md`](pipeline/README.md).
 - **Phase 2** — a web frontend on Vercel with a race replay: 20 cars on the track
   map with a data clock, a timing tower with tyre strategy, synced driver
   telemetry, and flags/safety car events on the timeline.

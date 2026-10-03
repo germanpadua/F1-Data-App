@@ -1,0 +1,63 @@
+# Repository checks: the two test suites, on every push and pull request.
+#
+# WHY THERE IS NO DATA JOB HERE (measured, not an omission)
+#   The daily export used to run in CI. A GitHub-hosted runner cannot do it:
+#   the F1 CDN answers `403 Forbidden` (`server=CloudFront`) to EVERY session
+#   stream, for a 2025 session exactly as for a 2026 one, while the same URLs
+#   answer `200` (`server=AmazonS3`) from a contributor's machine. The schedule
+#   endpoint is not blocked, which is why the old job's "discover" step passed
+#   and everything after it failed. Evidence:
+#   odd/tasks/phase-2-publish-hardening.md (P2.8).
+#
+#   So exporting and publishing happen locally (see pipeline/README.md), and CI
+#   checks what it can check WITHOUT the F1 data: the code.
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: Web (vitest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run the frontend tests
+        run: npm test
+
+  publisher:
+    name: Blob publisher (node --test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: tools/blob-publish/package-lock.json
+
+      - name: Install the publisher dependency
+        run: npm ci --prefix tools/blob-publish
+
+      - name: Run the publisher tests
+        # The index merge and the stale-read guard are pure logic; this is the
+        # only place they are exercised without touching a real Blob store.
+        run: npm test --prefix tools/blob-publish

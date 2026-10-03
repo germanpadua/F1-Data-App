@@ -29,11 +29,11 @@ RACING_WINDOW_MARGIN_S = 5.0
 def completed_rounds(year: int) -> list[int]:
     """Rounds of ``year`` whose race has already happened.
 
-    Derived from FastF1's schedule and today's UTC date — the SAME notion
-    the CI uses to discover the latest completed round
-    (``.github/workflows/export-latest-round.yml``): an event is completed
+    Derived from FastF1's schedule and today's UTC date: an event is completed
     when its ``EventDate`` is strictly before today, and testing events are
     excluded. Nothing is hardcoded, so this follows the calendar by itself.
+    This is what ``--all-completed`` backfills; the export runs locally, so
+    there is no CI job to keep in sync with.
     """
     today = pd.Timestamp(datetime.now(timezone.utc).date())
     schedule = fastf1.get_event_schedule(year, include_testing=False)

@@ -27,9 +27,17 @@ including its Amendments; this file documents the contract **as implemented**.
 ```
 
 Requirements: Python 3.12, FastF1 3.8.3 (see `requirements.txt`). The FastF1
-cache lives in `cache/` at the repo root. CI runs this automatically once a day
-for the most recently completed round (`.github/workflows/export-latest-round.yml`);
-artifacts are uploaded as workflow artifacts and are **never committed**.
+cache lives in `cache/` at the repo root.
+
+**This runs locally, and CI cannot run it.** The F1 CDN answers `403 Forbidden`
+(`server=CloudFront`) to every session stream from a GitHub-hosted runner — for
+a 2025 session exactly as for a 2026 one — while the same URLs answer `200`
+(`server=AmazonS3`) from a contributor's machine. The schedule endpoint is *not*
+blocked, which makes the failure look partial when it is total. CI therefore
+runs the test suites only (`.github/workflows/tests.yml`), and exporting,
+self-checking and publishing are local steps. Artifacts are **never committed**:
+they stay in the gitignored `data/export/` and reach the frontend through
+Vercel Blob.
 
 ## Artifact layout
 
@@ -88,17 +96,34 @@ node tools/blob-publish/publish.mjs
 ```
 
 **The token**: `BLOB_READ_WRITE_TOKEN` is Vercel's documented long-lived
-read-write token for code running outside Vercel, which is exactly this case
-(GitHub Actions). Create it in the Vercel dashboard under **Storage → your
-Blob store → Blob read-write token**, then add it as a **GitHub repository
-secret named `BLOB_READ_WRITE_TOKEN`** (Settings → Secrets and variables →
-Actions). Without the secret, the publisher prints that publishing was
-skipped and exits 0, so CI stays green for anyone without the token.
+read-write token for code running outside Vercel, which is this case. Create it
+in the Vercel dashboard under **Storage → your Blob store → Blob read-write
+token** and put it in the environment of the machine that publishes. It is a
+credential: keep it out of the repository and out of any transcript. Without the
+variable the publisher prints that publishing was skipped and exits 0, so an
+environment without credentials never fails a build.
 
-The daily CI job (`.github/workflows/export-latest-round.yml`) installs the
-publisher with `npm install --prefix tools/blob-publish` and runs it after
-the export and self-check. There is deliberately **no root `package.json`**:
-the Phase 2 frontend gets its own directory and its own Vercel project.
+Publishing happens on the machine that has the artifacts, and re-running it is
+**safe by contract**: it overwrites the same pathnames (`allowOverwrite`), it
+uploads a replayable `Buffer` so the SDK's retries work, and it merges the
+published `index.json` with the one on disk so a partial export root can never
+shrink what the frontend sees. The full sequence:
+
+```bash
+# 1. Export (and backfill) locally, where the F1 CDN allows the download
+.venv/bin/python -m pipeline.export --year 2026 --all-completed
+
+# 2. Validate the artifacts against the contract
+.venv/bin/python -m pipeline.check --root data/export
+
+# 3. Publish: what is on disk becomes what the frontend reads
+BLOB_READ_WRITE_TOKEN=... node tools/blob-publish/publish.mjs
+```
+
+CI does not do any of this (see the note about the 403 above). There is
+deliberately **no root `package.json`**: the Phase 2 frontend has its own
+directory and its own Vercel project, and the publisher has its own
+(`tools/blob-publish/`) with its own `node --test` suite.
 
 ## The shared time grid
 
