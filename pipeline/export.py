@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -23,6 +24,21 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Amendment 1 (A1a): the grid ends at the latest lap end plus this margin.
 RACING_WINDOW_MARGIN_S = 5.0
+
+
+def completed_rounds(year: int) -> list[int]:
+    """Rounds of ``year`` whose race has already happened.
+
+    Derived from FastF1's schedule and today's UTC date — the SAME notion
+    the CI uses to discover the latest completed round
+    (``.github/workflows/export-latest-round.yml``): an event is completed
+    when its ``EventDate`` is strictly before today, and testing events are
+    excluded. Nothing is hardcoded, so this follows the calendar by itself.
+    """
+    today = pd.Timestamp(datetime.now(timezone.utc).date())
+    schedule = fastf1.get_event_schedule(year, include_testing=False)
+    completed = schedule[schedule["EventDate"] < today]
+    return [int(r) for r in completed["RoundNumber"]]
 
 
 def _racing_window_s(session) -> tuple[float, float]:
@@ -169,23 +185,104 @@ def rebuild_index(out_root: Path) -> dict:
     return index
 
 
+def _race_exported(out_root: Path, year: int, round_number: int) -> bool:
+    """True when a race directory for this round already has its artifacts.
+
+    Checked on disk (any ``<round>-*`` directory with a ``race.json``) so a
+    backfill is resumable and idempotent regardless of slug differences.
+    """
+    year_dir = Path(out_root) / str(year)
+    if not year_dir.is_dir():
+        return False
+    prefix = f"{round_number}-"
+    return any(
+        (p / layout.RACE_FILENAME).is_file()
+        for p in year_dir.iterdir() if p.is_dir() and p.name.startswith(prefix)
+    )
+
+
+def export_all_completed(year: int, session_code: str, out_root: Path,
+                         *, upto_round: int | None = None) -> int:
+    """Backfill: export every completed round of ``year``, resumably.
+
+    Rounds already exported (a race.json on disk) are SKIPPED, a round that
+    fails is recorded and does NOT abort the rest, and index.json is rebuilt
+    once at the end from whatever is on disk, so the self-check over the
+    whole root stays valid even after a partial run.
+
+    ``upto_round`` is an optional bounding cap (round <= N) used to limit
+    how much is downloaded in one run; it does not affect the round
+    selection itself, only where the backfill stops.
+    """
+    rounds = completed_rounds(year)
+    if upto_round is not None:
+        rounds = [r for r in rounds if r <= upto_round]
+    if not rounds:
+        print(f"no completed rounds to export in the {year} season")
+        return 0
+    print(f"backfilling {len(rounds)} completed round(s) of {year}: {rounds}")
+
+    outcomes: list[tuple[int, str]] = []
+    for round_number in rounds:
+        if _race_exported(out_root, year, round_number):
+            outcomes.append((round_number, "skipped (already exported)"))
+            print(f"round {round_number}: skipped (already exported)")
+            continue
+        try:
+            destination = export_race(year, round_number, session_code, out_root)
+            outcomes.append((round_number, "exported"))
+            print(f"round {round_number}: exported -> {destination}")
+        except Exception as exc:  # noqa: BLE001 — one bad round must not stop the rest
+            outcomes.append((round_number, f"FAILED: {exc}"))
+            print(f"round {round_number}: FAILED: {exc}")
+
+    index = rebuild_index(out_root)
+    exported = sum(1 for _, status in outcomes if status == "exported")
+    skipped = sum(1 for _, status in outcomes if status.startswith("skipped"))
+    failed = sum(1 for _, status in outcomes if status.startswith("FAILED"))
+    print(f"backfill summary for {year}: {exported} exported, "
+          f"{skipped} skipped, {failed} failed")
+    for round_number, status in outcomes:
+        print(f"  round {round_number}: {status}")
+    print(f"index.json rewritten with {len(index['races'])} race(s)")
+    return 1 if failed else 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m pipeline.export",
         description="Export a completed F1 session to static JSON artifacts.",
     )
     parser.add_argument("--year", type=int, required=True)
-    parser.add_argument("--round", type=int, required=True)
+    parser.add_argument("--round", type=int, default=None)
+    parser.add_argument(
+        "--all-completed", action="store_true",
+        help="export every completed round of --year (resumable: already "
+             "exported rounds are skipped; one failure does not abort the rest)",
+    )
+    parser.add_argument(
+        "--upto-round", type=int, default=None,
+        help="with --all-completed, cap the backfill at this round "
+             "(bounding cap for tests and partial bootstraps)",
+    )
     parser.add_argument("--session", default="R", help="session code (default: R)")
     parser.add_argument("--out", default=str(REPO_ROOT / "data" / "export"),
                         help="output root (default: data/export)")
     args = parser.parse_args(argv)
+
+    if args.round is None and not args.all_completed:
+        parser.error("either --round N or --all-completed is required")
 
     # FastF1 cache at the repo's cache/ so repeated runs never re-download.
     fastf1.Cache.enable_cache(str(REPO_ROOT / "cache"))
     logging.getLogger("fastf1").setLevel(logging.WARNING)
 
     out_root = Path(args.out)
+    if args.all_completed:
+        return export_all_completed(
+            args.year, args.session, out_root, upto_round=args.upto_round
+        )
+
     destination = export_race(args.year, args.round, args.session, out_root)
     index = rebuild_index(out_root)
     print(f"exported {destination}")

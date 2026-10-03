@@ -1,10 +1,13 @@
 # Phase 1 CI (P1.9): export the most recently completed round, run the
-# self-check, and upload the artifacts as a workflow artifact.
+# self-check, upload the artifacts as a workflow artifact, and publish the
+# published season (pipeline/scope.py) to Vercel Blob.
 #
 # ARTIFACTS ARE NEVER COMMITTED TO THE REPOSITORY. This workflow must not
 # run `git add`, `git commit` or `git push`, ever: race data lives in
 # data/export/ (gitignored) and is uploaded as a workflow artifact only.
-# Public publishing is a Phase 2 decision (object storage or a data branch).
+# Public publishing goes to Vercel Blob via tools/blob-publish/publish.mjs;
+# a missing BLOB_READ_WRITE_TOKEN secret makes the publisher SKIP with
+# exit 0, so CI stays green for forks without the token.
 
 name: Export latest round
 
@@ -153,3 +156,23 @@ jobs:
         with:
           name: f1-export-${{ steps.discover.outputs.year }}-r${{ steps.discover.outputs.round }}
           path: data/export/
+
+      # PUBLISHING: the publisher itself enforces the published-season scope
+      # (pipeline/scope.py, mirrored in tools/blob-publish/publish.mjs), so
+      # it can run on every discovered round — including the skip path,
+      # where data/export comes from cache and the run would otherwise
+      # never catch up after a past token-less run. It is idempotent: a
+      # pathname already in Blob is overwritten. The Node dependency is
+      # isolated under tools/blob-publish (NO root package.json: the future
+      # frontend gets its own directory and Vercel project).
+      - name: Install the Blob publisher dependency
+        if: steps.discover.outputs.round != ''
+        run: npm install --prefix tools/blob-publish
+
+      - name: Publish to Vercel Blob
+        # Without the secret this prints that publishing was skipped and
+        # exits 0 — a missing optional credential is never a red build.
+        if: steps.discover.outputs.round != ''
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+        run: node tools/blob-publish/publish.mjs

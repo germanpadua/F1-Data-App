@@ -65,8 +65,13 @@ The full data contract, artifact layout, measured sizes and the null/delta
 rules a frontend author must implement are documented in
 [`pipeline/README.md`](pipeline/README.md). A GitHub Actions workflow
 (`.github/workflows/export-latest-round.yml`) exports the most recently
-completed round daily; artifacts are uploaded as workflow artifacts and are
-never committed to the repository.
+completed round daily, self-checks the artifacts, uploads them as workflow
+artifacts (never committed to the repository), and publishes the declared
+published season (2026, see [`pipeline/scope.py`](pipeline/scope.py)) to
+Vercel Blob via `tools/blob-publish/publish.mjs` — the latter skipped with a
+clear message when the `BLOB_READ_WRITE_TOKEN` secret is absent. A backfill
+command exports every completed round of a season in one resumable run:
+`python -m pipeline.export --year 2026 --all-completed`.
 
 ## Data sources
 

@@ -13,6 +13,15 @@ including its Amendments; this file documents the contract **as implemented**.
 # Export one session (default output root: data/export/)
 .venv/bin/python -m pipeline.export --year 2026 --round 15 --session R
 
+# Backfill: export every COMPLETED round of a season in one go (resumable:
+# already-exported rounds are skipped, one failure does not abort the rest,
+# per-round summary at the end). "Completed" is derived from FastF1's
+# schedule and today's date, the same notion the CI uses.
+.venv/bin/python -m pipeline.export --year 2026 --all-completed
+
+# Optional bounding cap (round <= N), for partial bootstraps and tests
+.venv/bin/python -m pipeline.export --year 2026 --all-completed --upto-round 15
+
 # Validate every artifact on disk against the contract (the verification surface)
 .venv/bin/python -m pipeline.check --root data/export
 ```
@@ -47,6 +56,49 @@ race, 22 drivers, `n_samples` 11 858):
 The split keeps the index page cheap: `race.json` is tens-to-hundreds of KB,
 `replay.json` is the heavy one, and a driver's telemetry is only fetched when
 selected.
+
+## Publishing (Vercel Blob)
+
+Exporting and publishing are two different things. The CLI can export any
+season locally; publishing to Vercel Blob is bounded to a **declared
+published-season scope** so the published payload stays well inside the free
+tier (1 GB): one race measures 9 822 254 B, so the completed 15-round 2026
+season is ~147 MB, ~15% of the free tier.
+
+- **The scope lives in one place**: [`pipeline/scope.py`](scope.py),
+  `PUBLISHED_SEASONS = (2026,)`. Widening it is a one-line change there plus
+  the mirror constant in `tools/blob-publish/publish.mjs` (Node cannot import
+  Python). Nothing else needs to change.
+- The scope is **enforced at publish time only, never at export time**:
+  `export.py` and `check.py` are deliberately scope-blind, and the publisher
+  skips and counts out-of-scope races.
+- The publisher (`tools/blob-publish/publish.mjs`) uploads `index.json` and,
+  for every in-scope race, `race.json`, `replay.json` and every
+  `tel/<DRIVER>.json`, preserving the on-disk relative paths as Blob
+  pathnames (e.g. `2026/15-azerbaijan-grand-prix/replay.json`), public
+  access, bounded concurrency (4), non-zero exit naming the file on failure.
+
+```bash
+# Preview exactly what would be uploaded, totals and out-of-scope skips
+# (no token needed, nothing is uploaded)
+node tools/blob-publish/publish.mjs --dry-run
+
+# Publish for real (needs BLOB_READ_WRITE_TOKEN in the environment)
+node tools/blob-publish/publish.mjs
+```
+
+**The token**: `BLOB_READ_WRITE_TOKEN` is Vercel's documented long-lived
+read-write token for code running outside Vercel, which is exactly this case
+(GitHub Actions). Create it in the Vercel dashboard under **Storage → your
+Blob store → Blob read-write token**, then add it as a **GitHub repository
+secret named `BLOB_READ_WRITE_TOKEN`** (Settings → Secrets and variables →
+Actions). Without the secret, the publisher prints that publishing was
+skipped and exits 0, so CI stays green for anyone without the token.
+
+The daily CI job (`.github/workflows/export-latest-round.yml`) installs the
+publisher with `npm install --prefix tools/blob-publish` and runs it after
+the export and self-check. There is deliberately **no root `package.json`**:
+the Phase 2 frontend gets its own directory and its own Vercel project.
 
 ## The shared time grid
 

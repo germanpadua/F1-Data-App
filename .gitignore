@@ -17,3 +17,6 @@ data/export/
 # OS/editor noise
 .DS_Store
 *.log
+
+# Node (the Blob publisher under tools/)
+node_modules/
